@@ -60,6 +60,8 @@ const configureMiddlewares = (app) => {
   if (process.env.NODE_ENV !== 'test') {
     app.use(morgan('combined'));
   }
+
+  console.log('✅ Middlewares configured successfully');
 };
 
 module.exports = configureMiddlewares;

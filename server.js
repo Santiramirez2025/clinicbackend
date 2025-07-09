@@ -1,7 +1,7 @@
 // ============================================================================
 // server.js - SERVIDOR MEJORADO CON MANEJO DE ERRORES
 // ============================================================================
-const app = require('./src/app');
+const app = require('./app');
 const { PrismaClient } = require('@prisma/client');
 
 const prisma = new PrismaClient();
