@@ -1,11 +1,11 @@
 // ============================================================================
-// src/routes/auth.routes.js - RUTAS COMPLETAS CON FORGOT PASSWORD
+// src/routes/auth.routes.js - RUTAS COMPLETAS CON ADMIN LOGIN ✅
 // ============================================================================
 const express = require('express');
 const { body } = require('express-validator');
 const AuthController = require('../controllers/auth.controller');
 const { asyncHandler } = require('../utils/asyncHandler');
-const { verifyToken } = require('../middleware/auth.middleware'); // Para rutas protegidas
+const { verifyToken } = require('../middleware/auth.middleware');
 
 const router = express.Router();
 
@@ -62,7 +62,6 @@ const registerValidation = [
     .withMessage('Las preferencias de notificación deben ser un objeto'),
 ];
 
-// ✨ VALIDACIONES FORGOT PASSWORD
 const forgotPasswordValidation = [
   body('email')
     .isEmail()
@@ -88,6 +87,17 @@ const changePasswordValidation = [
     .withMessage('Nueva contraseña debe tener entre 6 y 100 caracteres')
 ];
 
+// ⭐ NUEVA VALIDACIÓN ADMIN LOGIN
+const adminLoginValidation = [
+  body('email')
+    .isEmail()
+    .normalizeEmail()
+    .withMessage('Email de administrador inválido'),
+  body('password')
+    .isLength({ min: 1 })
+    .withMessage('Contraseña de administrador requerida')
+];
+
 // ========================================================================
 // RUTAS PÚBLICAS (sin autenticación)
 // ========================================================================
@@ -97,7 +107,10 @@ router.post('/login', loginValidation, asyncHandler(AuthController.login));
 router.post('/demo-login', asyncHandler(AuthController.demoLogin));
 router.post('/register', registerValidation, asyncHandler(AuthController.register));
 
-// ✨ FORGOT PASSWORD ROUTES
+// ⭐ NUEVA RUTA ADMIN LOGIN
+router.post('/admin-login', adminLoginValidation, asyncHandler(AuthController.adminLogin));
+
+// Forgot Password routes
 router.post('/forgot-password', forgotPasswordValidation, asyncHandler(AuthController.forgotPassword));
 router.get('/verify-reset-token/:token', asyncHandler(AuthController.verifyResetToken));
 router.post('/reset-password', resetPasswordValidation, asyncHandler(AuthController.resetPassword));

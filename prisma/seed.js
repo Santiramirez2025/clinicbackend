@@ -12,8 +12,10 @@ async function main() {
     // ========================================================================
     console.log('📍 Creando clínicas...');
     
-    const clinicaBelleza = await prisma.clinic.create({
-      data: {
+    const clinicaBelleza = await prisma.clinic.upsert({
+      where: { email: 'admin@bellezaestetica.com' },
+      update: {},
+      create: {
         name: 'Belleza Estética Premium',
         email: 'admin@bellezaestetica.com',
         passwordHash: await bcrypt.hash('admin123', 12),
@@ -46,8 +48,11 @@ async function main() {
     // ========================================================================
     console.log('👩‍⚕️ Creando profesionales...');
 
-    const professional1 = await prisma.professional.create({
-      data: {
+    const professional1 = await prisma.professional.upsert({
+      where: { id: 'prof-ana-martinez' },
+      update: {},
+      create: {
+        id: 'prof-ana-martinez',
         clinicId: clinicaBelleza.id,
         firstName: 'Ana',
         lastName: 'Martínez',
@@ -70,8 +75,11 @@ async function main() {
     // ========================================================================
     console.log('💆‍♀️ Creando tratamientos...');
 
-    const treatment1 = await prisma.treatment.create({
-      data: {
+    const treatment1 = await prisma.treatment.upsert({
+      where: { id: 'treat-ritual-purificante' },
+      update: {},
+      create: {
+        id: 'treat-ritual-purificante',
         clinicId: clinicaBelleza.id,
         name: 'Ritual Purificante',
         description: 'Limpieza facial profunda con extracción de comedones, mascarilla purificante y hidratación.',
@@ -83,8 +91,11 @@ async function main() {
       }
     });
 
-    const treatment2 = await prisma.treatment.create({
-      data: {
+    const treatment2 = await prisma.treatment.upsert({
+      where: { id: 'treat-drenaje-relajante' },
+      update: {},
+      create: {
+        id: 'treat-drenaje-relajante',
         clinicId: clinicaBelleza.id,
         name: 'Drenaje Relajante',
         description: 'Masaje de drenaje linfático corporal que elimina toxinas y proporciona relajación profunda.',
@@ -96,8 +107,11 @@ async function main() {
       }
     });
 
-    const treatment3 = await prisma.treatment.create({
-      data: {
+    const treatment3 = await prisma.treatment.upsert({
+      where: { id: 'treat-hidratacion-vip' },
+      update: {},
+      create: {
+        id: 'treat-hidratacion-vip',
         clinicId: clinicaBelleza.id,
         name: 'Hidratación Premium VIP',
         description: 'Tratamiento facial exclusivo con ácido hialurónico, vitamina C y mascarilla de oro.',
@@ -114,8 +128,10 @@ async function main() {
     // ========================================================================
     console.log('👤 Creando usuario demo...');
 
-    const demoUser = await prisma.user.create({
-      data: {
+    const demoUser = await prisma.user.upsert({
+      where: { email: 'demo@bellezaestetica.com' },
+      update: {},
+      create: {
         email: 'demo@bellezaestetica.com',
         passwordHash: await bcrypt.hash('demo123', 12),
         firstName: 'María',
@@ -132,23 +148,54 @@ async function main() {
           wellness: true,
           offers: true,
           promotions: false
-        })
+        }),
+        // ✅ NUEVOS CAMPOS DE NOTIFICACIONES
+        pushToken: null,
+        devicePlatform: null,
+        deviceInfo: null,
+        pushSettings: JSON.stringify({
+          appointments: true,
+          wellness: true,
+          offers: true,
+          promotions: false
+        }),
+        lastNotificationSent: null
       }
     });
 
     // ========================================================================
-    // 5. CREAR SUSCRIPCIÓN VIP
+    // 5. CREAR STRIPE CUSTOMER Y SUSCRIPCIÓN VIP
     // ========================================================================
+    console.log('💎 Creando customer de Stripe...');
+
+    const stripeCustomer = await prisma.stripeCustomer.upsert({
+      where: { userId: demoUser.id },
+      update: {},
+      create: {
+        userId: demoUser.id,
+        stripeCustomerId: 'cus_demo_customer_123',
+        email: demoUser.email,
+        name: `${demoUser.firstName} ${demoUser.lastName}`,
+        phone: demoUser.phone
+      }
+    });
+
     console.log('💎 Creando suscripción VIP...');
 
-    await prisma.vipSubscription.create({
-      data: {
+    await prisma.vipSubscription.upsert({
+      where: { stripeSubscriptionId: 'sub_demo_subscription_123' },
+      update: {},
+      create: {
         userId: demoUser.id,
+        stripeSubscriptionId: 'sub_demo_subscription_123',
+        stripeCustomerId: stripeCustomer.stripeCustomerId,
         planType: 'MONTHLY',
-        price: 19.99,
         status: 'ACTIVE',
-        startsAt: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000), // Hace 15 días
-        expiresAt: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000) // En 15 días
+        price: 19.99,
+        currency: 'EUR',
+        currentPeriodStart: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000), // Hace 15 días
+        currentPeriodEnd: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000), // En 15 días
+        cancelAtPeriodEnd: false
       }
     });
 
@@ -157,8 +204,11 @@ async function main() {
     // ========================================================================
     console.log('📅 Creando citas de ejemplo...');
 
-    await prisma.appointment.create({
-      data: {
+    await prisma.appointment.upsert({
+      where: { id: 'appt-demo-123' },
+      update: {},
+      create: {
+        id: 'appt-demo-123',
         userId: demoUser.id,
         clinicId: clinicaBelleza.id,
         professionalId: professional1.id,
@@ -179,18 +229,21 @@ async function main() {
 
     const tips = [
       {
+        id: 'tip-hidratacion',
         title: 'Hidratación Matutina',
         content: 'Comienza tu día bebiendo un vaso de agua tibia con limón.',
         category: 'hidratacion',
         iconName: 'droplets'
       },
       {
+        id: 'tip-proteccion',
         title: 'Protección Solar Diaria',
         content: 'Aplica protector solar todos los días, incluso en días nublados.',
         category: 'proteccion',
         iconName: 'sun'
       },
       {
+        id: 'tip-descanso',
         title: 'Descanso Reparador',
         content: 'Duerme entre 7-8 horas diarias para que tu piel se regenere.',
         category: 'descanso',
@@ -199,8 +252,38 @@ async function main() {
     ];
 
     for (const tip of tips) {
-      await prisma.wellnessTip.create({ data: tip });
+      await prisma.wellnessTip.upsert({
+        where: { id: tip.id },
+        update: {},
+        create: tip
+      });
     }
+
+    // ========================================================================
+    // 8. CREAR LOG DE NOTIFICACIÓN DE EJEMPLO
+    // ========================================================================
+    console.log('🔔 Creando logs de notificaciones...');
+
+    await prisma.notificationLog.upsert({
+      where: { id: 'notif-demo-123' },
+      update: {},
+      create: {
+        id: 'notif-demo-123',
+        userId: demoUser.id,
+        type: 'appointment',
+        title: 'Recordatorio de cita',
+        body: 'Tu cita de Ritual Purificante es mañana a las 14:00',
+        sentAt: new Date(Date.now() - 24 * 60 * 60 * 1000), // Hace 1 día
+        delivered: true,
+        opened: true,
+        data: JSON.stringify({
+          appointmentId: 'appt-demo-123',
+          treatmentName: 'Ritual Purificante'
+        }),
+        pushToken: 'expo-push-token-demo',
+        platform: 'ios'
+      }
+    });
 
     // ========================================================================
     // RESUMEN FINAL
@@ -212,9 +295,11 @@ async function main() {
     console.log(`   👩‍⚕️ Profesionales: 1`);
     console.log(`   💆‍♀️ Tratamientos: 3`);
     console.log(`   👤 Usuario demo: 1`);
+    console.log(`   🏦 Stripe Customer: 1`);
     console.log(`   💎 Suscripción VIP: 1`);
     console.log(`   📅 Citas: 1`);
     console.log(`   🌿 Tips: 3`);
+    console.log(`   🔔 Notificaciones: 1`);
     console.log('================================================');
     
     console.log('\n🔑 CREDENCIALES DE PRUEBA:');
@@ -222,6 +307,7 @@ async function main() {
     console.log('   📧 Email: demo@bellezaestetica.com');
     console.log('   🔑 Password: demo123');
     console.log('   💎 Estado: VIP activo');
+    console.log('   🔔 Notificaciones: Configuradas');
     
     console.log('\n🏥 CLÍNICA ADMIN:');
     console.log('   📧 Email: admin@bellezaestetica.com');
@@ -231,6 +317,8 @@ async function main() {
     console.log('   POST /api/auth/demo-login');
     console.log('   GET  /api/dashboard');
     console.log('   GET  /api/vip/benefits');
+    console.log('   GET  /api/profile');
+    console.log('   PUT  /api/profile/notifications');
 
   } catch (error) {
     console.error('❌ Error durante el seeding:', error);

@@ -1,5 +1,5 @@
 // ============================================================================
-// src/app.js - APLICACIÓN PRINCIPAL CON PRISMA INTEGRADO ✅
+// src/app.js - APLICACIÓN PRINCIPAL COMPLETA Y FUNCIONAL ✅
 // ============================================================================
 const express = require('express');
 const cors = require('cors');
@@ -15,22 +15,28 @@ const app = express();
 const prisma = new PrismaClient();
 
 // ============================================================================
-// MIDDLEWARES GLOBALES
+// MIDDLEWARES GLOBALES ✅
 // ============================================================================
 
 app.use(helmet());
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  origin: process.env.CORS_ORIGIN?.split(',') || [
+    'http://localhost:3000',
+    'http://localhost:19006',
+    'exp://192.168.1.174:8081'
+  ],
   credentials: true
 }));
 
+// Rate limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,
-  message: { error: 'Demasiadas solicitudes, intenta más tarde.' }
+  message: { success: false, error: { message: 'Demasiadas solicitudes' } }
 });
 app.use('/api/', limiter);
 
+app.use('/api/webhooks/stripe', express.raw({ type: 'application/json' }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(compression());
@@ -40,7 +46,7 @@ if (process.env.NODE_ENV !== 'test') {
 }
 
 // ============================================================================
-// HELPERS Y UTILIDADES
+// HELPERS Y UTILIDADES ✅
 // ============================================================================
 
 const generateToken = (userId) => {
@@ -48,7 +54,7 @@ const generateToken = (userId) => {
   return jwt.sign(
     { userId },
     process.env.JWT_SECRET || 'default-secret-key',
-    { expiresIn: '1h' }
+    { expiresIn: '24h' }
   );
 };
 
@@ -57,7 +63,10 @@ const authenticateToken = async (req, res, next) => {
   const token = authHeader && authHeader.split(' ')[1];
 
   if (!token) {
-    return res.status(401).json({ error: 'Token requerido' });
+    return res.status(401).json({ 
+      success: false,
+      error: { message: 'Token requerido' }
+    });
   }
 
   const jwt = require('jsonwebtoken');
@@ -66,33 +75,48 @@ const authenticateToken = async (req, res, next) => {
     
     console.log('🔍 Token decoded, userId:', decoded.userId);
     
-    // Si es el usuario demo, no buscar en BD
+    // Usuario demo
     if (decoded.userId === 'demo-user-123') {
-      req.user = { userId: decoded.userId, email: 'demo@bellezaestetica.com', isDemo: true };
+      req.user = { 
+        id: decoded.userId, 
+        userId: decoded.userId,
+        email: 'demo@bellezaestetica.com', 
+        isDemo: true,
+        vipStatus: true
+      };
       return next();
     }
     
-    // Para usuarios reales, buscar en BD
+    // Usuario real
     const user = await prisma.user.findUnique({
       where: { id: decoded.userId }
     });
     
     if (!user) {
-      console.log('❌ Usuario no encontrado en BD:', decoded.userId);
-      return res.status(403).json({ error: 'Usuario no encontrado' });
+      return res.status(403).json({ 
+        success: false,
+        error: { message: 'Usuario no encontrado' }
+      });
     }
     
-    console.log('✅ Usuario encontrado:', user.email);
-    req.user = { userId: user.id, email: user.email, isDemo: false };
+    req.user = { 
+      id: user.id,
+      userId: user.id, 
+      email: user.email, 
+      isDemo: false,
+      vipStatus: user.vipStatus || false
+    };
     next();
   } catch (err) {
-    console.error('❌ Token error:', err.message);
-    return res.status(403).json({ error: 'Token inválido' });
+    return res.status(403).json({ 
+      success: false,
+      error: { message: 'Token inválido' }
+    });
   }
 };
 
 // ============================================================================
-// FUNCIONES DE DATOS DEMO
+// DATOS DEMO ✅
 // ============================================================================
 
 const getDemoUserData = () => ({
@@ -116,7 +140,7 @@ const getDemoDashboard = () => ({
   nextAppointment: {
     id: 'apt-123',
     treatment: 'Limpieza Facial',
-    date: '2025-06-15',
+    date: '2025-07-15',
     time: '14:30',
     professional: 'Ana Martínez',
     clinic: 'Belleza Estética Premium'
@@ -154,24 +178,32 @@ const getDemoDashboard = () => ({
 });
 
 // ============================================================================
-// RUTAS PRINCIPALES
+// RUTAS PRINCIPALES ✅
 // ============================================================================
 
-app.get('/health', (req, res) => {
-  res.status(200).json({
-    status: 'OK',
-    timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development',
-    database: 'connected'
-  });
+app.get('/health', async (req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    res.status(200).json({
+      status: 'OK',
+      timestamp: new Date().toISOString(),
+      environment: process.env.NODE_ENV || 'development',
+      database: 'connected',
+      version: '1.0.0'
+    });
+  } catch (error) {
+    res.status(503).json({
+      status: 'ERROR',
+      database: 'disconnected'
+    });
+  }
 });
 
 app.get('/', (req, res) => {
   res.json({
-    message: '🏥 Belleza Estética API',
+    message: '🏥 Belleza Estética API - Sistema Completo',
     version: '1.0.0',
     status: 'active',
-    database: 'Prisma + SQLite',
     endpoints: {
       health: '/health',
       auth: '/api/auth/*',
@@ -179,16 +211,16 @@ app.get('/', (req, res) => {
       beautyPoints: '/api/beauty-points',
       vip: '/api/vip/*',
       appointments: '/api/appointments',
-      profile: '/api/profile'
+      profile: '/api/profile',
+      admin: '/api/admin/dashboard/*'
     }
   });
 });
 
 // ============================================================================
-// AUTH ROUTES - CON PRISMA INTEGRADO
+// AUTH ROUTES ✅
 // ============================================================================
 
-// Demo Login (mantiene datos demo)
 app.post('/api/auth/demo-login', (req, res) => {
   console.log('🎭 Demo login request received');
   
@@ -203,13 +235,12 @@ app.post('/api/auth/demo-login', (req, res) => {
       tokens: {
         accessToken: token,
         refreshToken: `refresh_${token}`,
-        expiresIn: '1h'
+        expiresIn: '24h'
       }
     }
   });
 });
 
-// Login con Prisma
 app.post('/api/auth/login', async (req, res) => {
   console.log('🔐 Login request received');
   
@@ -223,7 +254,7 @@ app.post('/api/auth/login', async (req, res) => {
       });
     }
 
-    // Verificar usuario demo primero
+    // Demo user
     if (email === 'demo@bellezaestetica.com' && password === 'demo123') {
       const demoUser = getDemoUserData();
       const token = generateToken(demoUser.id);
@@ -236,13 +267,13 @@ app.post('/api/auth/login', async (req, res) => {
           tokens: {
             accessToken: token,
             refreshToken: `refresh_${token}`,
-            expiresIn: '1h'
+            expiresIn: '24h'
           }
         }
       });
     }
 
-    // Buscar usuario real en BD
+    // Real user
     const user = await prisma.user.findUnique({
       where: { email: email.toLowerCase().trim() }
     });
@@ -254,7 +285,6 @@ app.post('/api/auth/login', async (req, res) => {
       });
     }
 
-    // Verificar contraseña
     const isValidPassword = await bcrypt.compare(password, user.passwordHash);
     
     if (!isValidPassword) {
@@ -283,7 +313,7 @@ app.post('/api/auth/login', async (req, res) => {
         tokens: {
           accessToken: token,
           refreshToken: `refresh_${token}`,
-          expiresIn: '1h'
+          expiresIn: '24h'
         }
       }
     });
@@ -297,7 +327,6 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-// Register con Prisma
 app.post('/api/auth/register', async (req, res) => {
   console.log('📝 Register request received');
   
@@ -311,7 +340,6 @@ app.post('/api/auth/register', async (req, res) => {
       });
     }
 
-    // Verificar si el email ya existe
     const existingUser = await prisma.user.findUnique({
       where: { email: email.toLowerCase().trim() }
     });
@@ -323,11 +351,9 @@ app.post('/api/auth/register', async (req, res) => {
       });
     }
 
-    // Hash de la contraseña
     const saltRounds = parseInt(process.env.BCRYPT_ROUNDS) || 12;
     const passwordHash = await bcrypt.hash(password, saltRounds);
 
-    // Crear usuario en BD
     const newUser = await prisma.user.create({
       data: {
         email: email.toLowerCase().trim(),
@@ -341,8 +367,6 @@ app.post('/api/auth/register', async (req, res) => {
         vipStatus: false
       }
     });
-
-    console.log('✅ Usuario creado en BD:', newUser.id);
 
     const token = generateToken(newUser.id);
     
@@ -364,7 +388,7 @@ app.post('/api/auth/register', async (req, res) => {
         tokens: {
           accessToken: token,
           refreshToken: `refresh_${token}`,
-          expiresIn: '1h'
+          expiresIn: '24h'
         }
       }
     });
@@ -386,191 +410,8 @@ app.post('/api/auth/register', async (req, res) => {
   }
 });
 
-// Forgot Password con Prisma
-app.post('/api/auth/forgot-password', async (req, res) => {
-  console.log('🔑 Forgot password request received');
-  
-  try {
-    const { email } = req.body;
-    
-    if (!email) {
-      return res.status(400).json({
-        success: false,
-        error: { message: 'Email es requerido' }
-      });
-    }
-
-    // Verificar si el usuario existe
-    const user = await prisma.user.findUnique({
-      where: { email: email.toLowerCase().trim() }
-    });
-
-    // Siempre responder igual por seguridad (no revelar si el email existe)
-    const resetToken = `reset_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
-    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hora
-
-    if (user) {
-      // Crear token de recuperación en BD
-      await prisma.passwordResetToken.create({
-        data: {
-          token: resetToken,
-          userId: user.id,
-          expiresAt,
-          used: false
-        }
-      });
-      
-      console.log(`✅ Token de recuperación creado para: ${email}`);
-    }
-
-    res.status(200).json({
-      success: true,
-      message: 'Si existe una cuenta con ese email, recibirás las instrucciones de recuperación',
-      data: {
-        ...(process.env.NODE_ENV === 'development' && user && {
-          resetToken,
-          expiresAt,
-          userFound: true
-        })
-      }
-    });
-
-  } catch (error) {
-    console.error('❌ Forgot password error:', error);
-    res.status(500).json({
-      success: false,
-      error: { message: 'Error interno del servidor' }
-    });
-  }
-});
-
-// Verify Reset Token con Prisma
-app.get('/api/auth/verify-reset-token/:token', async (req, res) => {
-  console.log('🔍 Verify reset token request received');
-  
-  try {
-    const { token } = req.params;
-    
-    const resetToken = await prisma.passwordResetToken.findUnique({
-      where: { token },
-      include: { user: true }
-    });
-    
-    if (!resetToken || resetToken.used || resetToken.expiresAt < new Date()) {
-      return res.status(400).json({
-        success: false,
-        error: { message: 'Token de recuperación inválido o expirado' }
-      });
-    }
-
-    res.status(200).json({
-      success: true,
-      message: 'Token válido',
-      data: {
-        email: resetToken.user.email,
-        firstName: resetToken.user.firstName
-      }
-    });
-
-  } catch (error) {
-    console.error('❌ Verify token error:', error);
-    res.status(500).json({
-      success: false,
-      error: { message: 'Error interno del servidor' }
-    });
-  }
-});
-
-// Reset Password con Prisma
-app.post('/api/auth/reset-password', async (req, res) => {
-  console.log('🔑 Reset password request received');
-  
-  try {
-    const { token, newPassword } = req.body;
-    
-    if (!token || !newPassword) {
-      return res.status(400).json({
-        success: false,
-        error: { message: 'Token y nueva contraseña son requeridos' }
-      });
-    }
-
-    const resetToken = await prisma.passwordResetToken.findUnique({
-      where: { token },
-      include: { user: true }
-    });
-    
-    if (!resetToken || resetToken.used || resetToken.expiresAt < new Date()) {
-      return res.status(400).json({
-        success: false,
-        error: { message: 'Token de recuperación inválido o expirado' }
-      });
-    }
-
-    // Hash nueva contraseña
-    const saltRounds = parseInt(process.env.BCRYPT_ROUNDS) || 12;
-    const passwordHash = await bcrypt.hash(newPassword, saltRounds);
-
-    // Actualizar contraseña y marcar token como usado
-    await prisma.$transaction([
-      prisma.user.update({
-        where: { id: resetToken.userId },
-        data: { passwordHash }
-      }),
-      prisma.passwordResetToken.update({
-        where: { id: resetToken.id },
-        data: { used: true }
-      })
-    ]);
-
-    console.log(`✅ Contraseña actualizada para: ${resetToken.user.email}`);
-
-    res.status(200).json({
-      success: true,
-      message: 'Contraseña actualizada exitosamente',
-      data: {
-        email: resetToken.user.email
-      }
-    });
-
-  } catch (error) {
-    console.error('❌ Reset password error:', error);
-    res.status(500).json({
-      success: false,
-      error: { message: 'Error interno del servidor' }
-    });
-  }
-});
-
-// Refresh Token
-app.post('/api/auth/refresh-token', (req, res) => {
-  const { refreshToken } = req.body;
-  
-  if (!refreshToken) {
-    return res.status(400).json({
-      success: false,
-      error: { message: 'Refresh token requerido' }
-    });
-  }
-
-  // Simular renovación de token (mejorar en producción)
-  const newToken = generateToken('demo-user-123');
-  
-  res.json({
-    success: true,
-    data: {
-      tokens: {
-        accessToken: newToken,
-        refreshToken: `refresh_${newToken}`,
-        expiresIn: '1h'
-      }
-    }
-  });
-});
-
-// Logout
-app.post('/api/auth/logout', (req, res) => {
-  console.log('👋 Logout request received');
+app.post('/api/auth/logout', authenticateToken, (req, res) => {
+  console.log('👋 Logout request received for user:', req.user.userId);
   
   res.json({
     success: true,
@@ -579,12 +420,11 @@ app.post('/api/auth/logout', (req, res) => {
 });
 
 // ============================================================================
-// DASHBOARD ROUTES - CON DATOS HÍBRIDOS (DEMO + PRISMA)
+// DASHBOARD ROUTES ✅
 // ============================================================================
 
 app.get('/api/dashboard', authenticateToken, async (req, res) => {
   try {
-    // Si es usuario demo, usar datos demo
     if (req.user.userId === 'demo-user-123') {
       return res.json({
         success: true,
@@ -592,7 +432,6 @@ app.get('/api/dashboard', authenticateToken, async (req, res) => {
       });
     }
 
-    // Para usuarios reales, buscar en BD
     const user = await prisma.user.findUnique({
       where: { id: req.user.userId }
     });
@@ -633,8 +472,8 @@ app.get('/api/dashboard', authenticateToken, async (req, res) => {
         professional: `${nextAppointment.professional.firstName} ${nextAppointment.professional.lastName}`,
         clinic: nextAppointment.clinic.name
       } : null,
-      featuredTreatments: getDemoDashboard().featuredTreatments, // Usar datos demo por ahora
-      wellnessTip: getDemoDashboard().wellnessTip, // Usar datos demo por ahora
+      featuredTreatments: getDemoDashboard().featuredTreatments,
+      wellnessTip: getDemoDashboard().wellnessTip,
       stats: {
         totalSessions: user.sessionsCompleted,
         beautyPoints: user.beautyPoints,
@@ -658,14 +497,766 @@ app.get('/api/dashboard', authenticateToken, async (req, res) => {
 });
 
 // ============================================================================
-// BEAUTY POINTS ROUTES - CON PRISMA INTEGRADO
+// APPOINTMENTS ROUTES - COMPLETO CON DETALLES ✅
+// ============================================================================
+
+// GET Treatments
+app.get('/api/appointments/treatments', async (req, res) => {
+  try {
+    console.log('💆‍♀️ Getting treatments from database...');
+    
+    const treatments = await prisma.treatment.findMany({
+      where: { isActive: true },
+      include: { clinic: true }
+    });
+
+    if (treatments.length > 0) {
+      console.log(`✅ Found ${treatments.length} treatments in database`);
+      return res.json({
+        success: true,
+        data: {
+          treatments: treatments.map(treatment => ({
+            id: treatment.id,
+            name: treatment.name,
+            description: treatment.description,
+            duration: treatment.durationMinutes,
+            durationMinutes: treatment.durationMinutes,
+            price: treatment.price,
+            category: treatment.category,
+            iconName: treatment.iconName,
+            isVipExclusive: treatment.isVipExclusive,
+            clinic: treatment.clinic.name
+          }))
+        }
+      });
+    }
+
+    // Si no hay treatments, crear algunos demo
+    console.log('📝 Creating demo treatments in database...');
+    
+    let clinic = await prisma.clinic.findFirst();
+    
+    if (!clinic) {
+      clinic = await prisma.clinic.create({
+        data: {
+          name: 'Belleza Estética Premium',
+          email: 'admin@bellezaestetica.com',
+          passwordHash: await bcrypt.hash('admin123', 12),
+          phone: '+34 900 123 456',
+          address: 'Av. Corrientes 1234, CABA',
+          subscriptionPlan: 'PREMIUM'
+        }
+      });
+      console.log('✅ Demo clinic created');
+    }
+
+    const demoTreatments = [
+      {
+        clinicId: clinic.id,
+        name: 'Ritual Purificante',
+        description: 'Limpieza facial profunda con extracción de comedones',
+        durationMinutes: 60,
+        price: 2500,
+        category: 'Facial',
+        iconName: 'sparkles',
+        isVipExclusive: false
+      },
+      {
+        clinicId: clinic.id,
+        name: 'Drenaje Relajante',
+        description: 'Masaje de drenaje linfático corporal',
+        durationMinutes: 90,
+        price: 3500,
+        category: 'Corporal',
+        iconName: 'waves',
+        isVipExclusive: false
+      },
+      {
+        clinicId: clinic.id,
+        name: 'Hidratación Premium VIP',
+        description: 'Tratamiento facial exclusivo con ácido hialurónico',
+        durationMinutes: 75,
+        price: 4500,
+        category: 'Facial',
+        iconName: 'crown',
+        isVipExclusive: true
+      }
+    ];
+
+    const createdTreatments = await Promise.all(
+      demoTreatments.map(treatment => 
+        prisma.treatment.create({ 
+          data: treatment,
+          include: { clinic: true }
+        })
+      )
+    );
+
+    console.log(`✅ Created ${createdTreatments.length} demo treatments`);
+
+    res.json({
+      success: true,
+      data: {
+        treatments: createdTreatments.map(treatment => ({
+          id: treatment.id,
+          name: treatment.name,
+          description: treatment.description,
+          duration: treatment.durationMinutes,
+          durationMinutes: treatment.durationMinutes,
+          price: treatment.price,
+          category: treatment.category,
+          iconName: treatment.iconName,
+          isVipExclusive: treatment.isVipExclusive,
+          clinic: treatment.clinic.name
+        }))
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error getting treatments:', error);
+    res.status(500).json({
+      success: false,
+      error: { message: 'Error interno del servidor' }
+    });
+  }
+});
+
+// GET Availability
+app.get('/api/appointments/availability', async (req, res) => {
+  try {
+    const { treatmentId, date } = req.query;
+
+    if (!treatmentId || !date) {
+      return res.status(400).json({
+        success: false,
+        error: { message: 'treatmentId y date son requeridos' }
+      });
+    }
+
+    console.log('⏰ Getting availability from database...', { treatmentId, date });
+
+    const treatment = await prisma.treatment.findUnique({
+      where: { id: treatmentId },
+      include: { clinic: true }
+    });
+
+    if (!treatment) {
+      return res.status(404).json({
+        success: false,
+        error: { message: 'Tratamiento no encontrado' }
+      });
+    }
+
+    let professionals = await prisma.professional.findMany({
+      where: { 
+        clinicId: treatment.clinicId,
+        isActive: true 
+      }
+    });
+
+    if (professionals.length === 0) {
+      console.log('📝 Creating demo professionals...');
+      
+      const demoProfessionals = [
+        {
+          clinicId: treatment.clinicId,
+          firstName: 'Ana',
+          lastName: 'Martínez',
+          specialties: 'Facial,Corporal',
+          bio: 'Especialista en tratamientos faciales con 10 años de experiencia',
+          rating: 4.9,
+          availableHours: '09:00-18:00',
+          isActive: true
+        },
+        {
+          clinicId: treatment.clinicId,
+          firstName: 'Carmen',
+          lastName: 'Rodríguez',
+          specialties: 'Corporal,Masajes',
+          bio: 'Experta en drenaje linfático y tratamientos corporales',
+          rating: 4.8,
+          availableHours: '10:00-19:00',
+          isActive: true
+        }
+      ];
+
+      professionals = await Promise.all(
+        demoProfessionals.map(prof => 
+          prisma.professional.create({ data: prof })
+        )
+      );
+
+      console.log(`✅ Created ${professionals.length} demo professionals`);
+    }
+
+    const existingAppointments = await prisma.appointment.findMany({
+      where: {
+        scheduledDate: new Date(date),
+        status: { in: ['CONFIRMED', 'PENDING'] }
+      },
+      select: {
+        scheduledTime: true,
+        professionalId: true
+      }
+    });
+
+    const timeSlots = [
+      '09:00', '09:30', '10:00', '10:30', '11:00', '11:30',
+      '14:00', '14:30', '15:00', '15:30', '16:00', '16:30', '17:00'
+    ];
+
+    const availableSlots = timeSlots.map(time => {
+      const availableProfessionals = professionals.filter(prof => {
+        const isOccupied = existingAppointments.some(apt => {
+          const aptTime = apt.scheduledTime.toTimeString().slice(0, 5);
+          return aptTime === time && apt.professionalId === prof.id;
+        });
+        
+        return !isOccupied;
+      }).map(prof => ({
+        id: prof.id,
+        name: `${prof.firstName} ${prof.lastName}`,
+        specialty: prof.specialties.split(',')[0],
+        specialties: prof.specialties.split(','),
+        rating: prof.rating || 4.5
+      }));
+
+      return {
+        time,
+        availableProfessionals
+      };
+    }).filter(slot => slot.availableProfessionals.length > 0);
+
+    res.json({
+      success: true,
+      data: {
+        date,
+        treatment: {
+          name: treatment.name,
+          duration: treatment.durationMinutes,
+          price: treatment.price
+        },
+        clinic: treatment.clinic.name,
+        availableSlots
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error getting availability:', error);
+    res.status(500).json({
+      success: false,
+      error: { message: 'Error interno del servidor' }
+    });
+  }
+});
+
+// POST Create Appointment
+app.post('/api/appointments', authenticateToken, async (req, res) => {
+  try {
+    const { treatmentId, date, time, professionalId, notes } = req.body;
+
+    console.log('📅 Creating appointment in database...', {
+      userId: req.user.userId,
+      treatmentId,
+      date,
+      time,
+      professionalId
+    });
+
+    if (!treatmentId || !date || !time) {
+      return res.status(400).json({
+        success: false,
+        error: { message: 'treatmentId, date y time son requeridos' }
+      });
+    }
+
+    // Para usuario demo
+    if (req.user.userId === 'demo-user-123') {
+      const newAppointment = {
+        id: `apt_${Date.now()}`,
+        treatment: { name: 'Ritual Purificante', duration: 60, price: 2500 },
+        date,
+        time,
+        professional: 'Ana Martínez',
+        clinic: 'Belleza Estética Premium',
+        status: 'PENDING',
+        beautyPointsEarned: 50,
+        notes: notes || null
+      };
+
+      return res.status(201).json({
+        success: true,
+        message: 'Cita creada exitosamente (Demo)',
+        data: { appointment: newAppointment }
+      });
+    }
+
+    const treatment = await prisma.treatment.findUnique({
+      where: { id: treatmentId },
+      include: { clinic: true }
+    });
+
+    if (!treatment) {
+      return res.status(404).json({
+        success: false,
+        error: { message: 'Tratamiento no encontrado' }
+      });
+    }
+
+    let professional = null;
+    if (professionalId) {
+      professional = await prisma.professional.findUnique({
+        where: { id: professionalId }
+      });
+
+      if (!professional) {
+        return res.status(404).json({
+          success: false,
+          error: { message: 'Profesional no encontrado' }
+        });
+      }
+    } else {
+      const availableProfessionals = await prisma.professional.findMany({
+        where: { 
+          clinicId: treatment.clinicId,
+          isActive: true 
+        }
+      });
+
+      if (availableProfessionals.length > 0) {
+        professional = availableProfessionals[0];
+      }
+    }
+
+    if (!professional) {
+      return res.status(400).json({
+        success: false,
+        error: { message: 'No hay profesionales disponibles' }
+      });
+    }
+
+    const scheduledDate = new Date(date);
+    const [hours, minutes] = time.split(':');
+    const scheduledTime = new Date(date);
+    scheduledTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+
+    const existingAppointment = await prisma.appointment.findFirst({
+      where: {
+        professionalId: professional.id,
+        scheduledDate,
+        scheduledTime,
+        status: { in: ['CONFIRMED', 'PENDING'] }
+      }
+    });
+
+    if (existingAppointment) {
+      return res.status(409).json({
+        success: false,
+        error: { message: 'El horario ya está ocupado' }
+      });
+    }
+
+    const beautyPoints = Math.floor(treatment.price / 50);
+
+    const newAppointment = await prisma.appointment.create({
+      data: {
+        userId: req.user.userId,
+        clinicId: treatment.clinicId,
+        professionalId: professional.id,
+        treatmentId: treatment.id,
+        scheduledDate,
+        scheduledTime,
+        durationMinutes: treatment.durationMinutes,
+        status: 'PENDING',
+        notes: notes?.trim() || null,
+        beautyPointsEarned: beautyPoints
+      },
+      include: {
+        treatment: true,
+        professional: true,
+        clinic: true
+      }
+    });
+
+    await prisma.user.update({
+      where: { id: req.user.userId },
+      data: {
+        beautyPoints: { increment: beautyPoints }
+      }
+    });
+
+    console.log('✅ Appointment created in database:', newAppointment.id);
+
+    res.status(201).json({
+      success: true,
+      message: 'Cita creada exitosamente',
+      data: {
+        appointment: {
+          id: newAppointment.id,
+          treatment: {
+            name: newAppointment.treatment.name,
+            duration: newAppointment.treatment.durationMinutes,
+            price: newAppointment.treatment.price
+          },
+          date: newAppointment.scheduledDate.toISOString().split('T')[0],
+          time: newAppointment.scheduledTime.toTimeString().slice(0, 5),
+          professional: `${newAppointment.professional.firstName} ${newAppointment.professional.lastName}`,
+          clinic: newAppointment.clinic.name,
+          status: newAppointment.status,
+          beautyPointsEarned: newAppointment.beautyPointsEarned,
+          notes: newAppointment.notes
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error creating appointment:', error);
+    res.status(500).json({
+      success: false,
+      error: { message: 'Error interno del servidor' }
+    });
+  }
+});
+
+// GET All Appointments
+app.get('/api/appointments', authenticateToken, async (req, res) => {
+  try {
+    console.log('📅 Getting appointments from database for user:', req.user.userId);
+
+    if (req.user.userId === 'demo-user-123') {
+      return res.json({
+        success: true,
+        data: {
+          appointments: [
+            {
+              id: 'apt-demo-123',
+              treatment: { name: 'Drenaje Relajante', duration: 90, price: 3500 },
+              date: '2025-07-15',
+              time: '14:30',
+              professional: 'Carmen Rodríguez',
+              clinic: 'Belleza Estética Premium',
+              status: 'CONFIRMED',
+              beautyPointsEarned: 70,
+              notes: 'Solicita música relajante'
+            }
+          ],
+          pagination: { total: 1, page: 1, limit: 10, hasMore: false }
+        }
+      });
+    }
+
+    const appointments = await prisma.appointment.findMany({
+      where: { userId: req.user.userId },
+      include: {
+        treatment: true,
+        professional: true,
+        clinic: true
+      },
+      orderBy: { scheduledDate: 'desc' }
+    });
+
+    const transformedAppointments = appointments.map(apt => ({
+      id: apt.id,
+      treatment: {
+        name: apt.treatment.name,
+        duration: apt.treatment.durationMinutes,
+        price: apt.treatment.price
+      },
+      date: apt.scheduledDate.toISOString().split('T')[0],
+      time: apt.scheduledTime.toTimeString().slice(0, 5),
+      professional: `${apt.professional.firstName} ${apt.professional.lastName}`,
+      clinic: apt.clinic.name,
+      status: apt.status,
+      beautyPointsEarned: apt.beautyPointsEarned,
+      notes: apt.notes,
+      createdAt: apt.createdAt.toISOString(),
+      updatedAt: apt.updatedAt.toISOString()
+    }));
+
+    console.log(`✅ Found ${appointments.length} appointments for user`);
+
+    res.json({
+      success: true,
+      data: {
+        appointments: transformedAppointments,
+        pagination: { 
+          total: appointments.length, 
+          page: 1, 
+          limit: 50, 
+          hasMore: false 
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error getting appointments:', error);
+    res.status(500).json({
+      success: false,
+      error: { message: 'Error interno del servidor' }
+    });
+  }
+});
+
+// GET /api/appointments/:appointmentId - ENDPOINT CRÍTICO FALTANTE ✅
+app.get('/api/appointments/:appointmentId', authenticateToken, async (req, res) => {
+  console.log('📋 Getting appointment details for ID:', req.params.appointmentId);
+  
+  try {
+    const { appointmentId } = req.params;
+    
+    // Usuario demo
+    if (req.user.userId === 'demo-user-123') {
+      const demoAppointment = {
+        id: appointmentId,
+        treatment: {
+          id: 't2',
+          name: 'Drenaje Relajante',
+          description: 'Masaje de drenaje linfático corporal',
+          duration: 90,
+          price: 3500,
+          category: 'Corporal',
+          iconName: 'waves'
+        },
+        date: '2025-07-15',
+        time: '14:30',
+        professional: {
+          id: 'prof2',
+          name: 'Carmen Rodríguez',
+          specialties: ['Drenaje linfático', 'Masajes'],
+          rating: 4.9,
+          bio: 'Experta en drenaje linfático y tratamientos corporales'
+        },
+        clinic: {
+          id: 'clinic1',
+          name: 'Belleza Estética Premium',
+          address: 'Av. Corrientes 1234, CABA',
+          phone: '+34 900 123 456'
+        },
+        status: 'CONFIRMED',
+        notes: 'Solicita música relajante',
+        beautyPointsEarned: 70,
+        canCancel: true,
+        canReschedule: true,
+        cancelDeadline: '2025-07-14T14:30:00.000Z'
+      };
+      
+      return res.json({
+        success: true,
+        data: { appointment: demoAppointment }
+      });
+    }
+
+    // Usuario real - buscar en BD
+    const appointment = await prisma.appointment.findUnique({
+      where: { id: appointmentId },
+      include: {
+        treatment: true,
+        professional: true,
+        clinic: true,
+        user: {
+          select: { id: true, email: true }
+        }
+      }
+    });
+
+    if (!appointment) {
+      return res.status(404).json({
+        success: false,
+        error: { message: 'Cita no encontrada' }
+      });
+    }
+
+    // Verificar que la cita pertenece al usuario
+    if (appointment.userId !== req.user.userId) {
+      return res.status(403).json({
+        success: false,
+        error: { message: 'No tienes permisos para ver esta cita' }
+      });
+    }
+
+    const appointmentData = {
+      id: appointment.id,
+      treatment: {
+        id: appointment.treatment.id,
+        name: appointment.treatment.name,
+        description: appointment.treatment.description,
+        duration: appointment.treatment.durationMinutes,
+        price: appointment.treatment.price,
+        category: appointment.treatment.category,
+        iconName: appointment.treatment.iconName
+      },
+      date: appointment.scheduledDate.toISOString().split('T')[0],
+      time: appointment.scheduledTime.toTimeString().slice(0, 5),
+      professional: {
+        id: appointment.professional.id,
+        name: `${appointment.professional.firstName} ${appointment.professional.lastName}`,
+        specialties: appointment.professional.specialties ? 
+          appointment.professional.specialties.split(',') : [],
+        rating: appointment.professional.rating || 5.0,
+        bio: appointment.professional.bio || 'Profesional especializado'
+      },
+      clinic: {
+        id: appointment.clinic.id,
+        name: appointment.clinic.name,
+        address: appointment.clinic.address,
+        phone: appointment.clinic.phone
+      },
+      status: appointment.status,
+      notes: appointment.notes,
+      beautyPointsEarned: appointment.beautyPointsEarned,
+      canCancel: appointment.status === 'CONFIRMED' || appointment.status === 'PENDING',
+      canReschedule: appointment.status === 'CONFIRMED' || appointment.status === 'PENDING',
+      cancelDeadline: new Date(appointment.scheduledDate.getTime() - 24 * 60 * 60 * 1000).toISOString()
+    };
+
+    console.log('✅ Appointment details found:', appointmentData.id);
+
+    res.json({
+      success: true,
+      data: { appointment: appointmentData }
+    });
+
+  } catch (error) {
+    console.error('❌ Get appointment details error:', error);
+    res.status(500).json({
+      success: false,
+      error: { message: 'Error interno del servidor' }
+    });
+  }
+});
+
+// PUT /api/appointments/:id - Actualizar cita
+app.put('/api/appointments/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, notes, date, time } = req.body;
+
+    console.log('📝 Updating appointment:', id);
+
+    if (req.user.userId === 'demo-user-123') {
+      return res.json({
+        success: true,
+        message: 'Cita actualizada exitosamente (Demo)',
+        data: { appointment: { id, status, notes, date, time } }
+      });
+    }
+
+    const existingAppointment = await prisma.appointment.findFirst({
+      where: {
+        id,
+        userId: req.user.userId
+      }
+    });
+
+    if (!existingAppointment) {
+      return res.status(404).json({
+        success: false,
+        error: { message: 'Cita no encontrada' }
+      });
+    }
+
+    const updateData = {};
+    if (status) updateData.status = status;
+    if (notes !== undefined) updateData.notes = notes;
+    if (date) updateData.scheduledDate = new Date(date);
+    if (time && date) {
+      const [hours, minutes] = time.split(':');
+      const scheduledTime = new Date(date);
+      scheduledTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+      updateData.scheduledTime = scheduledTime;
+    }
+
+    const updatedAppointment = await prisma.appointment.update({
+      where: { id },
+      data: updateData,
+      include: {
+        treatment: true,
+        professional: true,
+        clinic: true
+      }
+    });
+
+    console.log('✅ Appointment updated successfully');
+
+    res.json({
+      success: true,
+      message: 'Cita actualizada exitosamente',
+      data: { appointment: updatedAppointment }
+    });
+
+  } catch (error) {
+    console.error('❌ Error updating appointment:', error);
+    res.status(500).json({
+      success: false,
+      error: { message: 'Error interno del servidor' }
+    });
+  }
+});
+
+// DELETE /api/appointments/:id - Cancelar cita
+app.delete('/api/appointments/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason = 'Cancelado por usuario' } = req.body;
+
+    console.log('❌ Cancelling appointment:', id);
+
+    if (req.user.userId === 'demo-user-123') {
+      return res.json({
+        success: true,
+        message: 'Cita cancelada exitosamente (Demo)'
+      });
+    }
+
+    const existingAppointment = await prisma.appointment.findFirst({
+      where: {
+        id,
+        userId: req.user.userId
+      }
+    });
+
+    if (!existingAppointment) {
+      return res.status(404).json({
+        success: false,
+        error: { message: 'Cita no encontrada' }
+      });
+    }
+
+    const cancelledAppointment = await prisma.appointment.update({
+      where: { id },
+      data: {
+        status: 'CANCELLED',
+        notes: existingAppointment.notes ? 
+          `${existingAppointment.notes}\n\nMotivo: ${reason}` :
+          `Motivo: ${reason}`
+      }
+    });
+
+    console.log('✅ Appointment cancelled successfully');
+
+    res.json({
+      success: true,
+      message: 'Cita cancelada exitosamente',
+      data: { appointment: { id: cancelledAppointment.id, status: 'CANCELLED' } }
+    });
+
+  } catch (error) {
+    console.error('❌ Error cancelling appointment:', error);
+    res.status(500).json({
+      success: false,
+      error: { message: 'Error interno del servidor' }
+    });
+  }
+});
+
+// ============================================================================
+// BEAUTY POINTS ROUTES ✅
 // ============================================================================
 
 app.get('/api/beauty-points', authenticateToken, async (req, res) => {
   console.log('💎 Getting beauty points summary for user:', req.user.userId);
   
   try {
-    // Si es usuario demo, usar datos demo
     if (req.user.userId === 'demo-user-123') {
       const demoUser = getDemoUserData();
       const pointsMultiplier = demoUser.vipStatus ? 2 : 1;
@@ -689,12 +1280,6 @@ app.get('/api/beauty-points', authenticateToken, async (req, res) => {
               treatment: 'Ritual Purificante', 
               pointsEarned: demoUser.vipStatus ? 100 : 50,
               iconName: 'sparkles'
-            },
-            {
-              date: '2025-05-15',
-              treatment: 'Drenaje Relajante',
-              pointsEarned: demoUser.vipStatus ? 140 : 70,
-              iconName: 'waves'
             }
           ],
           availableRewards: [
@@ -705,31 +1290,12 @@ app.get('/api/beauty-points', authenticateToken, async (req, res) => {
               pointsCost: 100,
               category: 'discount',
               isAvailable: demoUser.beautyPoints >= 100
-            },
-            {
-              id: 'facial_free',
-              name: 'Facial Gratuito',
-              description: 'Limpieza facial básica sin costo',
-              pointsCost: 250,
-              category: 'treatment',
-              isAvailable: demoUser.beautyPoints >= 250
-            }
-          ].filter(r => r.isAvailable),
-          nextRewards: [
-            {
-              id: 'premium_treatment',
-              name: 'Tratamiento Premium',
-              description: 'Acceso a tratamiento exclusivo',
-              pointsCost: 500,
-              category: 'premium',
-              isAvailable: false
             }
           ]
         }
       });
     }
 
-    // Para usuarios reales
     const user = await prisma.user.findUnique({
       where: { id: req.user.userId }
     });
@@ -756,7 +1322,7 @@ app.get('/api/beauty-points', authenticateToken, async (req, res) => {
           pointsToNext: pointsToNextLevel,
           nextLevelPoints
         },
-        history: [], // TODO: Implementar historial real de puntos
+        history: [],
         availableRewards: [
           {
             id: 'discount_10',
@@ -765,24 +1331,6 @@ app.get('/api/beauty-points', authenticateToken, async (req, res) => {
             pointsCost: 100,
             category: 'discount',
             isAvailable: user.beautyPoints >= 100
-          },
-          {
-            id: 'facial_free',
-            name: 'Facial Gratuito',
-            description: 'Limpieza facial básica sin costo',
-            pointsCost: 250,
-            category: 'treatment',
-            isAvailable: user.beautyPoints >= 250
-          }
-        ].filter(r => r.isAvailable),
-        nextRewards: [
-          {
-            id: 'premium_treatment',
-            name: 'Tratamiento Premium',
-            description: 'Acceso a tratamiento exclusivo',
-            pointsCost: 500,
-            category: 'premium',
-            isAvailable: false
           }
         ]
       }
@@ -797,7 +1345,6 @@ app.get('/api/beauty-points', authenticateToken, async (req, res) => {
   }
 });
 
-// Canjear recompensa con Prisma
 app.post('/api/beauty-points/redeem', authenticateToken, async (req, res) => {
   console.log('💎 Redeeming reward for user:', req.user.userId);
   
@@ -813,9 +1360,7 @@ app.post('/api/beauty-points/redeem', authenticateToken, async (req, res) => {
     
     const rewards = {
       'discount_10': { name: 'Descuento 10%', cost: 100, type: 'discount' },
-      'facial_free': { name: 'Facial Gratuito', cost: 250, type: 'treatment' },
-      'massage_30min': { name: 'Masaje 30min', cost: 400, type: 'treatment' },
-      'premium_treatment': { name: 'Tratamiento Premium', cost: 500, type: 'premium' }
+      'facial_free': { name: 'Facial Gratuito', cost: 250, type: 'treatment' }
     };
     
     const reward = rewards[rewardId];
@@ -826,7 +1371,6 @@ app.post('/api/beauty-points/redeem', authenticateToken, async (req, res) => {
       });
     }
 
-    // Para usuario demo, usar datos en memoria
     if (req.user.userId === 'demo-user-123') {
       const demoUser = getDemoUserData();
       if (demoUser.beautyPoints < reward.cost) {
@@ -854,7 +1398,6 @@ app.post('/api/beauty-points/redeem', authenticateToken, async (req, res) => {
       });
     }
 
-    // Para usuarios reales
     const user = await prisma.user.findUnique({
       where: { id: req.user.userId }
     });
@@ -873,15 +1416,12 @@ app.post('/api/beauty-points/redeem', authenticateToken, async (req, res) => {
       });
     }
     
-    // Actualizar puntos del usuario
     const updatedUser = await prisma.user.update({
       where: { id: user.id },
       data: {
         beautyPoints: user.beautyPoints - reward.cost
       }
     });
-    
-    console.log(`✅ Reward redeemed: ${reward.name} for ${reward.cost} points`);
     
     res.json({
       success: true,
@@ -910,10 +1450,9 @@ app.post('/api/beauty-points/redeem', authenticateToken, async (req, res) => {
 });
 
 // ============================================================================
-// RESTO DE RUTAS (MANTENER FUNCIONALIDAD EXISTENTE)
+// VIP ROUTES ✅
 // ============================================================================
 
-// VIP Routes (mantener como estaban)
 app.get('/api/vip/benefits', (req, res) => {
   res.json({
     success: true,
@@ -976,32 +1515,6 @@ app.get('/api/vip/status', authenticateToken, (req, res) => {
   });
 });
 
-app.get('/api/vip/testimonials', (req, res) => {
-  res.json({
-    success: true,
-    data: {
-      testimonials: [
-        {
-          id: 1,
-          name: 'Ana García',
-          age: 28,
-          avatar: '👩🏻💼',
-          comment: 'Los descuentos VIP me permiten cuidarme más seguido. ¡Increíble!',
-          rating: 5
-        },
-        {
-          id: 2,
-          name: 'María Rodríguez',
-          age: 35,
-          avatar: '👩🏽🦰',
-          comment: 'La asesoría personalizada cambió completamente mi rutina de belleza.',
-          rating: 5
-        }
-      ]
-    }
-  });
-});
-
 app.post('/api/vip/subscribe', authenticateToken, (req, res) => {
   const { planType = 'MONTHLY' } = req.body;
   
@@ -1024,181 +1537,13 @@ app.post('/api/vip/subscribe', authenticateToken, (req, res) => {
 });
 
 // ============================================================================
-// APPOINTMENTS ROUTES
-// ============================================================================
-
-app.get('/api/appointments/treatments', (req, res) => {
-  res.json({
-    success: true,
-    data: {
-      treatments: [
-        {
-          id: 't1',
-          name: 'Ritual Purificante',
-          description: 'Limpieza facial profunda con extracción de comedones',
-          duration: 60,
-          price: 2500,
-          category: 'Facial',
-          iconName: 'sparkles',
-          isVipExclusive: false,
-          clinic: 'Belleza Estética Premium'
-        },
-        {
-          id: 't2',
-          name: 'Drenaje Relajante',
-          description: 'Masaje de drenaje linfático corporal',
-          duration: 90,
-          price: 3500,
-          category: 'Corporal',
-          iconName: 'waves',
-          isVipExclusive: false,
-          clinic: 'Belleza Estética Premium'
-        },
-        {
-          id: 't3',
-          name: 'Hidratación Premium VIP',
-          description: 'Tratamiento facial exclusivo con ácido hialurónico',
-          duration: 75,
-          price: 4500,
-          category: 'Facial',
-          iconName: 'crown',
-          isVipExclusive: true,
-          clinic: 'Belleza Estética Premium'
-        }
-      ]
-    }
-  });
-});
-
-app.get('/api/appointments/availability', authenticateToken, (req, res) => {
-  const { treatmentId, date } = req.query;
-
-  if (!treatmentId || !date) {
-    return res.status(400).json({
-      success: false,
-      error: { message: 'treatmentId y date son requeridos' }
-    });
-  }
-
-  const availableSlots = [
-    { time: '09:00', professionalId: 'prof1', professionalName: 'Ana Martínez' },
-    { time: '10:00', professionalId: 'prof2', professionalName: 'Carmen Rodríguez' },
-    { time: '14:00', professionalId: 'prof1', professionalName: 'Ana Martínez' },
-    { time: '15:30', professionalId: 'prof2', professionalName: 'Carmen Rodríguez' }
-  ];
-
-  res.json({
-    success: true,
-    data: {
-      date,
-      treatment: { name: 'Ritual Purificante', duration: 60, price: 2500 },
-      clinic: 'Belleza Estética Premium',
-      availableSlots: availableSlots.map(slot => ({
-        time: slot.time,
-        availableProfessionals: [{
-          id: slot.professionalId,
-          name: slot.professionalName,
-          specialties: ['Facial', 'Corporal'],
-          rating: 4.9
-        }]
-      }))
-    }
-  });
-});
-
-app.post('/api/appointments', authenticateToken, async (req, res) => {
-  try {
-    const { treatmentId, date, time, professionalId, notes } = req.body;
-
-    if (!treatmentId || !date || !time) {
-      return res.status(400).json({
-        success: false,
-        error: { message: 'treatmentId, date y time son requeridos' }
-      });
-    }
-
-    // Para usuario demo, responder con datos demo
-    if (req.user.userId === 'demo-user-123') {
-      const newAppointment = {
-        id: `apt_${Date.now()}`,
-        treatment: { name: 'Ritual Purificante', duration: 60, price: 2500 },
-        date,
-        time,
-        professional: 'Ana Martínez',
-        clinic: 'Belleza Estética Premium',
-        status: 'PENDING',
-        beautyPointsEarned: 50,
-        notes: notes || null
-      };
-
-      return res.status(201).json({
-        success: true,
-        message: 'Cita creada exitosamente',
-        data: { appointment: newAppointment }
-      });
-    }
-
-    // TODO: Para usuarios reales, crear cita en BD
-    // Necesitarías crear treatment, professional, clinic primero
-    
-    res.status(201).json({
-      success: true,
-      message: 'Cita creada exitosamente',
-      data: { 
-        appointment: {
-          id: `apt_${Date.now()}`,
-          treatment: { name: 'Tratamiento', duration: 60, price: 2500 },
-          date,
-          time,
-          professional: 'Profesional',
-          clinic: 'Clínica',
-          status: 'PENDING',
-          beautyPointsEarned: 50,
-          notes: notes || null
-        }
-      }
-    });
-
-  } catch (error) {
-    console.error('❌ Create appointment error:', error);
-    res.status(500).json({
-      success: false,
-      error: { message: 'Error interno del servidor' }
-    });
-  }
-});
-
-app.get('/api/appointments', authenticateToken, (req, res) => {
-  res.json({
-    success: true,
-    data: {
-      appointments: [
-        {
-          id: 'apt-123',
-          treatment: { name: 'Drenaje Relajante', duration: 90, price: 3500 },
-          date: '2025-06-15',
-          time: '14:30',
-          professional: 'Carmen Rodríguez',
-          clinic: 'Belleza Estética Premium',
-          status: 'CONFIRMED',
-          beautyPointsEarned: 70,
-          notes: 'Solicita música relajante'
-        }
-      ],
-      pagination: { total: 1, page: 1, limit: 10, hasMore: false }
-    }
-  });
-});
-
-// ============================================================================
-// PROFILE ROUTES - CON PRISMA INTEGRADO
+// PROFILE ROUTES ✅
 // ============================================================================
 
 app.get('/api/profile', authenticateToken, async (req, res) => {
   console.log('👤 Getting profile for user:', req.user.userId);
   
   try {
-    // Usuario demo
     if (req.user.userId === 'demo-user-123') {
       return res.json({
         success: true,
@@ -1208,10 +1553,8 @@ app.get('/api/profile', authenticateToken, async (req, res) => {
             email: 'demo@bellezaestetica.com',
             firstName: 'María',
             lastName: 'Ejemplar',
-            phone: '+54 11 1234-5678',
-            avatarUrl: null,
+            phone: '+34 600 123 456',
             birthDate: '1990-05-15',
-            skinType: 'MIXED',
             memberSince: '2024-01-15T10:00:00.000Z'
           },
           stats: {
@@ -1219,19 +1562,6 @@ app.get('/api/profile', authenticateToken, async (req, res) => {
             sessionsCompleted: 8,
             totalInvestment: 2400,
             vipStatus: true
-          },
-          skinProfile: {
-            type: 'MIXED',
-            currentFocus: ['Hidratación', 'Luminosidad'],
-            specialist: 'Dra. Ana Martínez'
-          },
-          nextAppointment: {
-            id: 'apt-123',
-            treatment: 'Drenaje Relajante',
-            date: '2025-06-15T00:00:00.000Z',
-            time: '2025-06-15T14:30:00.000Z',
-            professional: 'Carmen Rodríguez',
-            clinic: 'Belleza Estética Premium'
           },
           preferences: {
             appointments: true,
@@ -1243,7 +1573,6 @@ app.get('/api/profile', authenticateToken, async (req, res) => {
       });
     }
 
-    // Usuario real
     const user = await prisma.user.findUnique({
       where: { id: req.user.userId }
     });
@@ -1264,9 +1593,7 @@ app.get('/api/profile', authenticateToken, async (req, res) => {
           firstName: user.firstName,
           lastName: user.lastName,
           phone: user.phone,
-          avatarUrl: user.avatarUrl,
           birthDate: user.birthDate?.toISOString().split('T')[0] || null,
-          skinType: user.skinType,
           memberSince: user.createdAt.toISOString()
         },
         stats: {
@@ -1275,12 +1602,6 @@ app.get('/api/profile', authenticateToken, async (req, res) => {
           totalInvestment: user.totalInvestment,
           vipStatus: user.vipStatus
         },
-        skinProfile: {
-          type: user.skinType || 'UNKNOWN',
-          currentFocus: ['Hidratación', 'Cuidado general'],
-          specialist: 'Por asignar'
-        },
-        nextAppointment: null, // TODO: Buscar próxima cita
         preferences: {
           appointments: true,
           wellness: true,
@@ -1303,9 +1624,8 @@ app.put('/api/profile', authenticateToken, async (req, res) => {
   console.log('📝 Updating profile for user:', req.user.userId);
   
   try {
-    const { firstName, lastName, phone, birthDate, skinType } = req.body;
+    const { firstName, lastName, phone, birthDate } = req.body;
     
-    // Usuario demo
     if (req.user.userId === 'demo-user-123') {
       return res.json({
         success: true,
@@ -1315,21 +1635,18 @@ app.put('/api/profile', authenticateToken, async (req, res) => {
             id: 'demo-user-123',
             firstName: firstName || 'María',
             lastName: lastName || 'Ejemplar',
-            phone: phone || '+54 11 1234-5678',
-            birthDate: birthDate || '1990-05-15',
-            skinType: skinType || 'MIXED'
+            phone: phone || '+34 600 123 456',
+            birthDate: birthDate || '1990-05-15'
           }
         }
       });
     }
 
-    // Usuario real
     const updateData = {};
     if (firstName) updateData.firstName = firstName.trim();
     if (lastName) updateData.lastName = lastName.trim();
     if (phone) updateData.phone = phone.trim();
     if (birthDate) updateData.birthDate = new Date(birthDate);
-    if (skinType) updateData.skinType = skinType;
 
     const updatedUser = await prisma.user.update({
       where: { id: req.user.userId },
@@ -1345,8 +1662,7 @@ app.put('/api/profile', authenticateToken, async (req, res) => {
           firstName: updatedUser.firstName,
           lastName: updatedUser.lastName,
           phone: updatedUser.phone,
-          birthDate: updatedUser.birthDate?.toISOString().split('T')[0] || null,
-          skinType: updatedUser.skinType
+          birthDate: updatedUser.birthDate?.toISOString().split('T')[0] || null
         }
       }
     });
@@ -1360,35 +1676,27 @@ app.put('/api/profile', authenticateToken, async (req, res) => {
   }
 });
 
-app.put('/api/profile/change-password', authenticateToken, async (req, res) => {
-  console.log('🔐 Changing password for user:', req.user.userId);
-  
+app.put('/api/profile/notifications', authenticateToken, async (req, res) => {
   try {
-    const { currentPassword, newPassword } = req.body;
+    const { appointments, wellness, offers, promotions } = req.body;
     
-    if (!currentPassword || !newPassword) {
-      return res.status(400).json({
-        success: false,
-        error: { message: 'Contraseña actual y nueva contraseña son requeridas' }
-      });
-    }
+    console.log('🔔 Updating notification preferences:', { appointments, wellness, offers, promotions });
+    
+    const preferences = {
+      appointments: appointments !== undefined ? appointments : true,
+      wellness: wellness !== undefined ? wellness : true,
+      offers: offers !== undefined ? offers : false,
+      promotions: promotions !== undefined ? promotions : false
+    };
 
-    // Usuario demo
     if (req.user.userId === 'demo-user-123') {
-      if (currentPassword !== 'demo123') {
-        return res.status(400).json({
-          success: false,
-          error: { message: 'Contraseña actual incorrecta' }
-        });
-      }
-      
       return res.json({
         success: true,
-        message: 'Contraseña actualizada exitosamente (Demo)'
+        message: 'Preferencias de notificación actualizadas exitosamente (Demo)',
+        data: { preferences }
       });
     }
 
-    // Usuario real
     const user = await prisma.user.findUnique({
       where: { id: req.user.userId }
     });
@@ -1400,42 +1708,23 @@ app.put('/api/profile/change-password', authenticateToken, async (req, res) => {
       });
     }
 
-    // Verificar contraseña actual
-    const isValidPassword = await bcrypt.compare(currentPassword, user.passwordHash);
-    
-    if (!isValidPassword) {
-      return res.status(400).json({
-        success: false,
-        error: { message: 'Contraseña actual incorrecta' }
-      });
-    }
-
-    if (newPassword.length < 6) {
-      return res.status(400).json({
-        success: false,
-        error: { message: 'La nueva contraseña debe tener al menos 6 caracteres' }
-      });
-    }
-
-    // Hash nueva contraseña
-    const saltRounds = parseInt(process.env.BCRYPT_ROUNDS) || 12;
-    const passwordHash = await bcrypt.hash(newPassword, saltRounds);
-
-    // Actualizar contraseña
     await prisma.user.update({
-      where: { id: user.id },
-      data: { passwordHash }
+      where: { id: req.user.userId },
+      data: {
+        preferredNotifications: JSON.stringify(preferences)
+      }
     });
 
-    console.log('✅ Password changed successfully for user:', user.email);
+    console.log('✅ Notification preferences updated in database');
     
     res.json({
       success: true,
-      message: 'Contraseña actualizada exitosamente'
+      message: 'Preferencias de notificación actualizadas exitosamente',
+      data: { preferences }
     });
 
   } catch (error) {
-    console.error('❌ Change password error:', error);
+    console.error('❌ Update notifications error:', error);
     res.status(500).json({
       success: false,
       error: { message: 'Error interno del servidor' }
@@ -1443,108 +1732,93 @@ app.put('/api/profile/change-password', authenticateToken, async (req, res) => {
   }
 });
 
-// Otras rutas de profile (mantener funcionalidad demo)
-app.get('/api/profile/stats', authenticateToken, (req, res) => {
-  res.json({
-    success: true,
-    data: {
-      overview: {
-        beautyPoints: 150,
-        sessionsCompleted: 8,
-        totalInvestment: 2400,
-        vipStatus: true,
-        memberSince: '2024-01-15T10:00:00.000Z',
-        monthsActive: 6
-      },
-      monthlyActivity: [
-        { month: '2025-01', count: 2, spent: 500 },
-        { month: '2025-02', count: 3, spent: 750 },
-        { month: '2025-03', count: 1, spent: 350 },
-        { month: '2025-04', count: 2, spent: 600 }
-      ],
-      topTreatments: [
-        { name: 'Ritual Purificante', iconName: 'sparkles', count: 4 },
-        { name: 'Drenaje Relajante', iconName: 'waves', count: 3 },
-        { name: 'Hidratación Premium', iconName: 'droplets', count: 1 }
-      ],
-      achievements: [
-        {
-          id: 'first-appointment',
-          name: 'Primera Cita',
-          description: 'Completaste tu primera cita',
-          earned: true,
-          iconName: 'calendar-check'
-        },
-        {
-          id: 'vip-member',
-          name: 'Miembro VIP',
-          description: 'Te uniste al club exclusivo',
-          earned: true,
-          iconName: 'crown'
-        }
-      ]
-    }
-  });
-});
-
-app.put('/api/profile/notifications', authenticateToken, (req, res) => {
-  const { appointments, wellness, offers, promotions } = req.body;
-  
-  const preferences = {
-    appointments: appointments !== undefined ? appointments : true,
-    wellness: wellness !== undefined ? wellness : true,
-    offers: offers !== undefined ? offers : false,
-    promotions: promotions !== undefined ? promotions : false
-  };
-  
-  res.json({
-    success: true,
-    message: 'Preferencias actualizadas exitosamente',
-    data: { preferences }
-  });
-});
+// ============================================================================
+// RUTAS ADMIN DASHBOARD ✅
+// ============================================================================
+const adminDashboardRoutes = require('./routes/admin/dashboard');
+app.use('/api/admin/dashboard', adminDashboardRoutes);
 
 // ============================================================================
-// ERROR HANDLING
+// ERROR HANDLING ✅
 // ============================================================================
 
 app.use('*', (req, res) => {
   res.status(404).json({
-    error: 'Endpoint no encontrado',
-    path: req.originalUrl,
-    method: req.method,
-    message: 'La ruta solicitada no existe en la API'
+    success: false,
+    error: {
+      message: 'Endpoint no encontrado',
+      path: req.originalUrl,
+      method: req.method
+    },
+    availableEndpoints: {
+      health: '/health',
+      auth: '/api/auth/*',
+      dashboard: '/api/dashboard',
+      beautyPoints: '/api/beauty-points',
+      vip: '/api/vip/*',
+      appointments: '/api/appointments',
+      profile: '/api/profile',
+      admin: '/api/admin/dashboard/*'
+    }
   });
 });
 
 app.use((err, req, res, next) => {
-  console.error('❌ Error:', err.message);
+  console.error('❌ Error:', {
+    message: err.message,
+    stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
+    url: req.originalUrl,
+    method: req.method,
+    userId: req.user?.userId || 'anonymous'
+  });
   
   res.status(err.statusCode || 500).json({
     success: false,
     error: {
       message: err.message || 'Error interno del servidor',
-      ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+      code: err.code || 'INTERNAL_ERROR',
+      ...(process.env.NODE_ENV === 'development' && { 
+        stack: err.stack
+      })
     }
   });
 });
 
 // ============================================================================
-// GRACEFUL SHUTDOWN
+// GRACEFUL SHUTDOWN ✅
 // ============================================================================
 
-process.on('SIGINT', async () => {
-  console.log('\n🔌 Cerrando conexión a base de datos...');
-  await prisma.$disconnect();
-  console.log('✅ Conexión cerrada correctamente');
-  process.exit(0);
+const gracefulShutdown = async (signal) => {
+  console.log(`\n📡 Recibida señal ${signal}. Iniciando cierre graceful...`);
+  
+  try {
+    console.log('🔌 Cerrando conexión a base de datos...');
+    await prisma.$disconnect();
+    console.log('✅ Conexión a base de datos cerrada');
+    
+    console.log('🎉 Cierre graceful completado');
+    process.exit(0);
+    
+  } catch (error) {
+    console.error('❌ Error durante cierre graceful:', error);
+    process.exit(1);
+  }
+};
+
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
-process.on('SIGTERM', async () => {
-  console.log('\n🔌 Cerrando conexión a base de datos...');
-  await prisma.$disconnect();
-  console.log('✅ Conexión cerrada correctamente');
-  process.exit(0);
+process.on('uncaughtException', (error) => {
+  console.error('❌ Uncaught Exception:', error);
+  gracefulShutdown('UNCAUGHT_EXCEPTION');
 });
+
+// ============================================================================
+// EXPORTAR APP ✅
+// ============================================================================
 
 module.exports = app;

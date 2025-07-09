@@ -23,7 +23,20 @@ const verifyToken = async (req, res, next) => {
     }
 
     // Verificar token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'default-secret-key');
+    
+    // Usuario demo
+    if (decoded.userId === 'demo-user-123') {
+      req.user = { 
+        id: decoded.userId, 
+        userId: decoded.userId,
+        email: 'demo@bellezaestetica.com', 
+        firstName: 'María',
+        lastName: 'Ejemplar',
+        vipStatus: true
+      };
+      return next();
+    }
     
     // Obtener usuario de la base de datos
     const user = await prisma.user.findUnique({
@@ -56,10 +69,71 @@ const verifyToken = async (req, res, next) => {
   }
 };
 
+// ✅ NUEVO: Middleware opcional - Para endpoints públicos que pueden usar auth
+const optionalAuth = async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+    
+    // Si no hay token, continuar sin usuario
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      req.user = null;
+      return next();
+    }
+
+    const token = authHeader.split(' ')[1];
+    
+    if (!token) {
+      req.user = null;
+      return next();
+    }
+
+    // Verificar token si existe
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'default-secret-key');
+    
+    // Usuario demo
+    if (decoded.userId === 'demo-user-123') {
+      req.user = { 
+        id: decoded.userId, 
+        userId: decoded.userId,
+        email: 'demo@bellezaestetica.com', 
+        firstName: 'María',
+        lastName: 'Ejemplar',
+        vipStatus: true
+      };
+      return next();
+    }
+    
+    // Usuario real
+    const user = await prisma.user.findUnique({
+      where: { id: decoded.userId },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        vipStatus: true
+      }
+    });
+
+    req.user = user || null;
+    next();
+
+  } catch (error) {
+    // Si hay error con el token, continuar sin usuario
+    console.log('⚠️ Optional auth error (continuing without user):', error.message);
+    req.user = null;
+    next();
+  }
+};
+
 // Requerir acceso VIP
 const requireVIP = async (req, res, next) => {
   try {
     const user = req.user;
+    
+    if (!user) {
+      throw new AppError('Autenticación requerida', 401);
+    }
     
     if (!user.vipStatus) {
       // Verificar si tiene suscripción activa en base de datos
@@ -98,7 +172,7 @@ const verifyClinicToken = async (req, res, next) => {
     }
 
     const token = authHeader.split(' ')[1];
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'default-secret-key');
     
     // Buscar clínica en lugar de usuario
     const clinic = await prisma.clinic.findUnique({
@@ -131,6 +205,7 @@ const verifyClinicToken = async (req, res, next) => {
 
 module.exports = {
   verifyToken,
+  optionalAuth,  // ✅ NUEVO
   requireVIP,
   verifyClinicToken
 };

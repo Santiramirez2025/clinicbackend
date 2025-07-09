@@ -7,6 +7,9 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ============================================================================
+// MODELO USER - ACTUALIZADO CON STRIPE Y NOTIFICACIONES ✅
+// ============================================================================
 model User {
   id                      String   @id @default(cuid())
   email                   String   @unique
@@ -25,15 +28,34 @@ model User {
   createdAt               DateTime @default(now()) @map("created_at")
   updatedAt               DateTime @updatedAt @map("updated_at")
   
+  // ✅ NUEVOS CAMPOS PARA NOTIFICACIONES PUSH
+  pushToken               String?   @map("push_token")
+  devicePlatform          String?   @map("device_platform")
+  deviceInfo              String?   @map("device_info") // JSON
+  pushSettings            String?   @map("push_settings") // JSON
+  lastNotificationSent    DateTime? @map("last_notification_sent")
+  
+  // Relaciones existentes
   appointments            Appointment[]
   vipSubscriptions        VipSubscription[]
   invitations             Invitation[]
-  passwordResetTokens     PasswordResetToken[] // ✨ AGREGADO
+  passwordResetTokens     PasswordResetToken[]
+  rewardRedemptions       RewardRedemption[]
+  
+  // ✨ NUEVAS RELACIONES STRIPE
+  stripeCustomer          StripeCustomer?
+  paymentMethods          PaymentMethod[]
+  payments                Payment[]
+  
+  // ✅ NUEVA RELACIÓN NOTIFICACIONES
+  notificationLogs        NotificationLog[]
+  
+  // ✅ NUEVA RELACIÓN OFERTAS
+  offerRedemptions        OfferRedemption[]
   
   @@map("users")
 }
 
-// ✨ NUEVO MODELO AGREGADO
 model PasswordResetToken {
   id        String   @id @default(cuid())
   token     String   @unique
@@ -65,6 +87,8 @@ model Clinic {
   professionals         Professional[]
   treatments            Treatment[]
   appointments          Appointment[]
+  rewardTemplates       RewardTemplate[]
+  offers                Offer[] // ✅ NUEVA RELACIÓN OFERTAS
   
   @@map("clinics")
 }
@@ -128,24 +152,38 @@ model Appointment {
   clinic                Clinic       @relation(fields: [clinicId], references: [id], onDelete: Cascade)
   professional          Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
   treatment             Treatment    @relation(fields: [treatmentId], references: [id], onDelete: Cascade)
+  rewardRedemptions     RewardRedemption[]
+  offerRedemptions      OfferRedemption[] // ✅ NUEVA RELACIÓN OFERTAS
   
   @@map("appointments")
 }
 
+// ============================================================================
+// ✨ MODELO VIP SUBSCRIPTION - ACTUALIZADO PARA STRIPE
+// ============================================================================
 model VipSubscription {
   id                   String   @id @default(cuid())
   userId               String   @map("user_id")
-  planType             String   @map("plan_type")
-  price                Float
-  status               String   @default("ACTIVE")
-  stripeSubscriptionId String?  @map("stripe_subscription_id")
-  startsAt             DateTime @map("starts_at")
-  expiresAt            DateTime @map("expires_at")
+  stripeSubscriptionId String   @unique @map("stripe_subscription_id")
+  stripeCustomerId     String   @map("stripe_customer_id")
+  planType             String   @map("plan_type") // MONTHLY, YEARLY
+  status               String   @default("ACTIVE") // ACTIVE, CANCELED, PAST_DUE, INCOMPLETE
+  price                Float    // Precio en EUR
+  currency             String   @default("EUR")
+  currentPeriodStart   DateTime @map("current_period_start")
+  currentPeriodEnd     DateTime @map("current_period_end")
+  cancelAtPeriodEnd    Boolean  @default(false) @map("cancel_at_period_end")
+  canceledAt           DateTime? @map("canceled_at")
+  trialStart           DateTime? @map("trial_start")
+  trialEnd             DateTime? @map("trial_end")
   createdAt            DateTime @default(now()) @map("created_at")
   updatedAt            DateTime @updatedAt @map("updated_at")
   
   user                 User @relation(fields: [userId], references: [id], onDelete: Cascade)
   
+  @@index([userId, status], map: "idx_user_subscription_status")
+  @@index([status, currentPeriodEnd], map: "idx_subscription_expiry")
+  @@index([stripeSubscriptionId], map: "idx_stripe_subscription")
   @@map("vip_subscriptions")
 }
 
@@ -174,4 +212,264 @@ model WellnessTip {
   updatedAt   DateTime @updatedAt @map("updated_at")
   
   @@map("wellness_tips")
+}
+
+// ============================================================================
+// ✨ NUEVOS MODELOS DE OFERTAS PARA CLÍNICAS ✅
+// ============================================================================
+
+model Offer {
+  id              String   @id @default(cuid())
+  clinicId        String   @map("clinic_id")
+  title           String
+  description     String
+  terms           String?  // Términos y condiciones
+  discountType    String   @default("PERCENTAGE") // PERCENTAGE, FIXED_AMOUNT, FREE_TREATMENT
+  discountValue   Float    // Porcentaje o monto fijo
+  originalPrice   Float?   @map("original_price") // Precio original del tratamiento
+  finalPrice      Float?   @map("final_price")    // Precio final con descuento
+  validFrom       DateTime @map("valid_from")
+  validUntil      DateTime @map("valid_until")
+  isActive        Boolean  @default(true) @map("is_active")
+  
+  // Targeting
+  targetAudience  String   @default("ALL") @map("target_audience") // ALL, VIP, NEW_CUSTOMERS, RETURNING
+  minAge          Int?     @map("min_age")
+  maxAge          Int?     @map("max_age")
+  
+  // Tratamientos aplicables
+  treatmentIds    String   @default("[]") @map("treatment_ids") // JSON array de IDs
+  
+  // Límites de uso
+  maxUses         Int?     @map("max_uses")      // Máximo total de usos
+  maxUsesPerUser  Int      @default(1) @map("max_uses_per_user") // Máximo por usuario
+  currentUses     Int      @default(0) @map("current_uses")
+  
+  // Configuración de notificaciones
+  sendNotification Boolean @default(true) @map("send_notification")
+  notificationSchedule String? @map("notification_schedule") // JSON con horarios
+  
+  // Metadata
+  imageUrl        String?  @map("image_url")
+  priority        Int      @default(1) // 1=alta, 2=media, 3=baja
+  category        String   @default("GENERAL") // GENERAL, FACIAL, CORPORAL, VIP, SEASONAL
+  
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  
+  // Relaciones
+  clinic          Clinic @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  offerRedemptions OfferRedemption[]
+  
+  @@index([clinicId, isActive], map: "idx_clinic_active_offers")
+  @@index([validFrom, validUntil], map: "idx_offer_validity")
+  @@index([targetAudience, category], map: "idx_offer_targeting")
+  @@map("offers")
+}
+
+// Nueva tabla para tracking de canjes de ofertas
+model OfferRedemption {
+  id           String   @id @default(cuid())
+  offerId      String   @map("offer_id")
+  userId       String   @map("user_id")
+  appointmentId String? @map("appointment_id") // Si se usa en una cita
+  redeemedAt   DateTime @default(now()) @map("redeemed_at")
+  originalPrice Float   @map("original_price")
+  discountApplied Float @map("discount_applied")
+  finalPrice   Float    @map("final_price")
+  status       String   @default("ACTIVE") // ACTIVE, USED, EXPIRED, CANCELLED
+  code         String   @unique // Código único para validar
+  usedAt       DateTime? @map("used_at")
+  expiresAt    DateTime @map("expires_at")
+  notes        String?
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  
+  // Relaciones
+  offer        Offer @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  user         User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  appointment  Appointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  
+  @@index([userId, status], map: "idx_user_offer_redemptions")
+  @@index([offerId, status], map: "idx_offer_usage")
+  @@index([expiresAt], map: "idx_offer_expiry")
+  @@map("offer_redemptions")
+}
+
+// ============================================================================
+// ✨ NUEVOS MODELOS STRIPE PARA PAGOS VIP
+// ============================================================================
+
+model StripeCustomer {
+  id               String   @id @default(cuid())
+  userId           String   @unique @map("user_id")
+  stripeCustomerId String   @unique @map("stripe_customer_id")
+  email            String
+  name             String?
+  phone            String?
+  deletedAt        DateTime? @map("deleted_at")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+  
+  user             User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([stripeCustomerId], map: "idx_stripe_customer")
+  @@map("stripe_customers")
+}
+
+model PaymentMethod {
+  id               String   @id @default(cuid())
+  userId           String   @map("user_id")
+  stripeMethodId   String   @unique @map("stripe_method_id")
+  type             String   // card, sepa_debit, etc.
+  last4            String?
+  brand            String?  // visa, mastercard, etc.
+  expiryMonth      Int?     @map("expiry_month")
+  expiryYear       Int?     @map("expiry_year")
+  funding          String?  // credit, debit, prepaid
+  country          String?
+  isDefault        Boolean  @default(false) @map("is_default")
+  deletedAt        DateTime? @map("deleted_at")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+  
+  user             User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([userId, isDefault], map: "idx_user_default_payment")
+  @@map("payment_methods")
+}
+
+model Payment {
+  id                   String   @id @default(cuid())
+  userId               String   @map("user_id")
+  stripeInvoiceId      String?  @map("stripe_invoice_id")
+  stripeSubscriptionId String?  @map("stripe_subscription_id")
+  amount               Float    // En EUR
+  currency             String   @default("EUR")
+  status               String   // SUCCESS, FAILED, PENDING, REFUNDED
+  description          String?
+  failureReason        String?  @map("failure_reason")
+  paidAt               DateTime? @map("paid_at")
+  refundedAt           DateTime? @map("refunded_at")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+  
+  user                 User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([userId, status], map: "idx_user_payments")
+  @@index([stripeInvoiceId], map: "idx_stripe_invoice")
+  @@map("payments")
+}
+
+model WebhookEvent {
+  id              String   @id @default(cuid())
+  stripeEventId   String   @unique @map("stripe_event_id")
+  eventType       String   @map("event_type")
+  processed       Boolean  @default(false)
+  error           String?
+  data            String   // JSON del evento
+  createdAt       DateTime @map("created_at")
+  processedAt     DateTime @default(now()) @map("processed_at")
+  
+  @@index([stripeEventId], map: "idx_stripe_event")
+  @@index([eventType, processed], map: "idx_webhook_processing")
+  @@index([createdAt], map: "idx_webhook_cleanup")
+  @@map("webhook_events")
+}
+
+// ============================================================================
+// ✅ NUEVO MODELO PARA TRACKING DE NOTIFICACIONES
+// ============================================================================
+model NotificationLog {
+  id          String   @id @default(cuid())
+  userId      String   @map("user_id")
+  type        String   // appointment, wellness, promotion, general, offer
+  title       String
+  body        String
+  sentAt      DateTime @default(now()) @map("sent_at")
+  delivered   Boolean  @default(false)
+  opened      Boolean  @default(false)
+  data        String?  // JSON adicional
+  pushToken   String?  @map("push_token") // Token usado para enviar
+  platform    String?  // ios, android
+  error       String?  // Error si falla el envío
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  
+  user        User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([userId, type], map: "idx_user_notification_type")
+  @@index([sentAt], map: "idx_notification_date")
+  @@index([delivered, opened], map: "idx_notification_status")
+  @@map("notification_logs")
+}
+
+// ============================================================================
+// ✨ MODELOS EXISTENTES PARA SISTEMA DE RECOMPENSAS INTELIGENTE
+// ============================================================================
+
+model RewardTemplate {
+  id               String   @id @default(cuid())
+  clinicId         String   @map("clinic_id")
+  name             String
+  description      String
+  type             String   // DISCOUNT, UPGRADE, FREE_SERVICE, PRODUCT
+  value            Float    // Valor del descuento o costo del servicio
+  pointsCost       Int      @map("points_cost")
+  marginCost       Float    @map("margin_cost") // Costo real para la clínica
+  isActive         Boolean  @default(true) @map("is_active")
+  conditions       String?  // JSON con condiciones especiales
+  validityDays     Int      @default(30) @map("validity_days")
+  maxUsesPerMonth  Int      @default(10) @map("max_uses_per_month")
+  popularity       Float    @default(0) // Score basado en uso
+  seasonality      String?  // JSON con estacionalidad
+  targetUserType   String?  @map("target_user_type") // VIP, FREQUENT, NEW, ALL
+  minLoyaltyScore  Int      @default(0) @map("min_loyalty_score")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+  
+  clinic           Clinic @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  redemptions      RewardRedemption[]
+  
+  @@index([clinicId, isActive], map: "idx_clinic_active_rewards")
+  @@map("reward_templates")
+}
+
+model RewardRedemption {
+  id               String   @id @default(cuid())
+  userId           String   @map("user_id")
+  templateId       String   @map("template_id")
+  code             String   @unique // Código único para validar
+  status           String   @default("ACTIVE") // ACTIVE, USED, EXPIRED, CANCELLED
+  pointsUsed       Int      @map("points_used")
+  discountAmount   Float?   @map("discount_amount") // Monto exacto descontado
+  expiresAt        DateTime @map("expires_at")
+  usedAt           DateTime? @map("used_at")
+  appointmentId    String?  @map("appointment_id") // Si se usa en cita
+  notes            String?  // Notas adicionales del canje
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+  
+  user             User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  template         RewardTemplate @relation(fields: [templateId], references: [id])
+  appointment      Appointment? @relation(fields: [appointmentId], references: [id])
+  
+  @@index([userId, status], map: "idx_user_reward_redemptions")
+  @@index([templateId], map: "idx_template_redemptions")
+  @@map("reward_redemptions")
+}
+
+model RewardAnalytics {
+  id               String   @id @default(cuid())
+  templateId       String   @map("template_id")
+  userId           String   @map("user_id")
+  eventType        String   @map("event_type") // VIEW, REDEEM, USE, EXPIRE
+  metadata         String?  // JSON con datos adicionales
+  userLoyaltyScore Int      @map("user_loyalty_score")
+  userTier         String   @map("user_tier") // Bronze, Silver, Gold, Diamond
+  createdAt        DateTime @default(now()) @map("created_at")
+  
+  @@index([templateId, eventType], map: "idx_template_analytics")
+  @@index([userId, createdAt], map: "idx_user_analytics")
+  @@map("reward_analytics")
 }
