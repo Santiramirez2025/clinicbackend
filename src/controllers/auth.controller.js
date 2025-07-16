@@ -1,5 +1,5 @@
 // ============================================================================
-// src/controllers/auth.controller.js - CONTROLADOR COMPLETO CORREGIDO ✅
+// src/controllers/auth.controller.js - CONTROLADOR COMPLETO CON ADMIN LOGIN ✅
 // ============================================================================
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
@@ -40,7 +40,7 @@ class AuthController {
           vipSubscriptions: {
             where: {
               status: 'ACTIVE',
-              currentPeriodEnd: { gte: new Date() } // ✅ CORREGIDO
+              currentPeriodEnd: { gte: new Date() }
             }
           }
         }
@@ -101,7 +101,7 @@ class AuthController {
   }
 
   // ========================================================================
-  // DEMO LOGIN ✅ CORREGIDO
+  // DEMO LOGIN ✅
   // ========================================================================
   static async demoLogin(req, res, next) {
     try {
@@ -114,7 +114,7 @@ class AuthController {
           vipSubscriptions: {
             where: {
               status: 'ACTIVE',
-              currentPeriodEnd: { gte: new Date() } // ✅ CORREGIDO
+              currentPeriodEnd: { gte: new Date() }
             }
           }
         }
@@ -136,12 +136,12 @@ class AuthController {
             sessionsCompleted: 8,
             totalInvestment: 2400.00,
             vipStatus: true,
-            preferredNotifications: {
+            preferredNotifications: JSON.stringify({
               appointments: true,
               wellness: true,
               offers: true,
               promotions: true
-            }
+            })
           }
         });
 
@@ -149,11 +149,13 @@ class AuthController {
         await prisma.vipSubscription.create({
           data: {
             userId: demoUser.id,
+            stripeSubscriptionId: 'sub_demo_' + demoUser.id,
+            stripeCustomerId: 'cus_demo_' + demoUser.id,
             planType: 'MONTHLY',
             price: 19.99,
             status: 'ACTIVE',
-            currentPeriodStart: new Date(), // ✅ CORREGIDO
-            currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // ✅ CORREGIDO
+            currentPeriodStart: new Date(),
+            currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
           }
         });
 
@@ -164,7 +166,7 @@ class AuthController {
             vipSubscriptions: {
               where: {
                 status: 'ACTIVE',
-                currentPeriodEnd: { gte: new Date() } // ✅ CORREGIDO
+                currentPeriodEnd: { gte: new Date() }
               }
             }
           }
@@ -200,6 +202,123 @@ class AuthController {
 
     } catch (error) {
       console.error('❌ Error en demo login:', error);
+      next(error);
+    }
+  }
+
+  // ========================================================================
+  // ⭐ ADMIN LOGIN - NUEVO MÉTODO ✅
+  // ========================================================================
+  static async adminLogin(req, res, next) {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        throw new AppError('Datos de entrada inválidos', 400, errors.array());
+      }
+
+      const { email, password } = req.body;
+
+      console.log(`👑 Intento de admin login para: ${email}`);
+
+      // Buscar clínica admin
+      let clinic = await prisma.clinic.findUnique({
+        where: { email: email.toLowerCase() }
+      });
+
+      // Si no existe, crear clínica demo
+      if (!clinic) {
+        if (email.toLowerCase() === 'admin@bellezaestetica.com') {
+          console.log('🔧 Creando clínica demo...');
+          
+          const passwordHash = await bcrypt.hash('admin123', 12);
+          
+          clinic = await prisma.clinic.create({
+            data: {
+              name: 'Belleza Estética Premium',
+              email: 'admin@bellezaestetica.com',
+              passwordHash,
+              phone: '+34 91 123 4567',
+              address: 'Calle Serrano 123, Madrid',
+              subscriptionPlan: 'PREMIUM',
+              subscriptionExpiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 1 año
+              settings: JSON.stringify({
+                timezone: 'Europe/Madrid',
+                currency: 'EUR',
+                language: 'es',
+                notifications: {
+                  email: true,
+                  sms: true,
+                  push: true
+                }
+              }),
+              brandColors: JSON.stringify({
+                primary: '#8b5cf6',
+                secondary: '#06b6d4',
+                accent: '#f59e0b'
+              })
+            }
+          });
+          
+          console.log('✅ Clínica demo creada exitosamente');
+        } else {
+          console.log(`❌ Clínica no encontrada: ${email}`);
+          throw new AppError('Credenciales de administrador inválidas', 401);
+        }
+      }
+
+      // Verificar contraseña
+      const isValidPassword = await bcrypt.compare(password, clinic.passwordHash);
+      if (!isValidPassword) {
+        console.log(`❌ Contraseña incorrecta para admin: ${email}`);
+        throw new AppError('Credenciales de administrador inválidas', 401);
+      }
+
+      // Generar token JWT para admin
+      const adminToken = jwt.sign(
+        { 
+          clinicId: clinic.id,
+          email: clinic.email,
+          role: 'admin',
+          plan: clinic.subscriptionPlan
+        },
+        process.env.JWT_SECRET,
+        { expiresIn: '24h' }
+      );
+
+      console.log(`✅ Admin login exitoso para: ${email}`);
+
+      // Respuesta exitosa
+      res.status(200).json({
+        success: true,
+        message: 'Login de administrador exitoso',
+        data: {
+          user: {
+            id: clinic.id,
+            email: clinic.email,
+            firstName: 'Admin',
+            lastName: clinic.name,
+            role: 'admin',
+            plan: clinic.subscriptionPlan,
+            beautyPoints: 0,
+            sessionsCompleted: 0,
+            vipStatus: true
+          },
+          tokens: {
+            accessToken: adminToken,
+            refreshToken: adminToken, // Usar el mismo token por simplicidad
+            expiresIn: '24h'
+          },
+          clinic: {
+            id: clinic.id,
+            name: clinic.name,
+            plan: clinic.subscriptionPlan,
+            expiresAt: clinic.subscriptionExpiresAt
+          }
+        }
+      });
+
+    } catch (error) {
+      console.error('❌ Error en admin login:', error);
       next(error);
     }
   }
@@ -276,7 +395,7 @@ class AuthController {
           lastName: lastName.trim(),
           phone: phone.trim(),
           beautyPoints: 20, // Puntos de bienvenida
-          preferredNotifications: defaultPreferences
+          preferredNotifications: JSON.stringify(defaultPreferences)
         }
       });
 
@@ -614,7 +733,7 @@ class AuthController {
   }
 
   // ========================================================================
-  // VALIDATE SESSION - Verificar si el usuario está autenticado ✅ CORREGIDO
+  // VALIDATE SESSION - Verificar si el usuario está autenticado ✅
   // ========================================================================
   static async validateSession(req, res, next) {
     try {
@@ -627,7 +746,7 @@ class AuthController {
           vipSubscriptions: {
             where: {
               status: 'ACTIVE',
-              currentPeriodEnd: { gte: new Date() } // ✅ CORREGIDO
+              currentPeriodEnd: { gte: new Date() }
             }
           }
         }
