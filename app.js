@@ -1,5 +1,5 @@
 // ============================================================================
-// app.js - APLICACIÓN PRINCIPAL MODULARIZADA PARA PRODUCCIÓN ✅
+// app.js - APLICACIÓN PRINCIPAL CORREGIDA PARA POSTGRESQL ✅
 // ============================================================================
 const express = require('express');
 const { PrismaClient } = require('@prisma/client');
@@ -40,13 +40,15 @@ const prisma = new PrismaClient();
 // Seguridad
 app.use(helmet());
 
-// CORS
+// CORS - Más permisivo para producción
 app.use(cors({
-  origin: process.env.CORS_ORIGIN?.split(',') || [
-    'http://localhost:3000',
-    'http://localhost:19006',
-    'exp://192.168.1.174:8081'
-  ],
+  origin: process.env.NODE_ENV === 'production' 
+    ? (process.env.CORS_ORIGIN?.split(',') || true) 
+    : [
+        'http://localhost:3000',
+        'http://localhost:19006',
+        'exp://192.168.1.174:8081'
+      ],
   credentials: true
 }));
 
@@ -70,11 +72,12 @@ if (process.env.NODE_ENV !== 'test') {
 }
 
 // ============================================================================
-// RUTAS DE SALUD ✅
+// RUTAS DE SALUD ✅ (CORREGIDA PARA POSTGRESQL)
 // ============================================================================
 app.get('/health', async (req, res) => {
   try {
-    await prisma.$queryRaw`SELECT 1`;
+    // ✅ Query compatible con PostgreSQL
+    await prisma.$queryRaw`SELECT 1 as test`;
     res.status(200).json({
       status: 'OK',
       timestamp: new Date().toISOString(),
@@ -387,7 +390,7 @@ process.on('uncaughtException', (error) => {
 });
 
 // ============================================================================
-// INICIALIZACIÓN DE BASE DE DATOS ✅
+// INICIALIZACIÓN DE BASE DE DATOS ✅ - COMPATIBLE CON SQLITE Y POSTGRESQL
 // ============================================================================
 const initializeDatabase = async () => {
   try {
@@ -395,25 +398,77 @@ const initializeDatabase = async () => {
     await prisma.$connect();
     console.log('✅ Conexión a base de datos establecida');
     
-    // Verificar que las tablas principales existan
+    // Detectar tipo de base de datos y verificar tablas
     try {
-      const tablesExist = await prisma.$queryRaw`
-        SELECT name FROM sqlite_master WHERE type='table' AND name IN ('User', 'Clinic', 'Treatment', 'Appointment');
-      `;
+      let tablesResult;
+      let dbType = 'unknown';
       
-      if (tablesExist.length > 0) {
-        console.log(`✅ Tablas verificadas: ${tablesExist.length}/4`);
+      // Intentar con PostgreSQL/MySQL primero
+      try {
+        tablesResult = await prisma.$queryRaw`
+          SELECT table_name 
+          FROM information_schema.tables 
+          WHERE table_schema = 'public' 
+          AND table_name IN ('User', 'Clinic', 'Treatment', 'Appointment')
+        `;
+        dbType = 'postgresql';
+      } catch (pgError) {
+        // Si falla, intentar con SQLite
+        try {
+          tablesResult = await prisma.$queryRaw`
+            SELECT name as table_name 
+            FROM sqlite_master 
+            WHERE type = 'table' 
+            AND name IN ('User', 'Clinic', 'Treatment', 'Appointment')
+          `;
+          dbType = 'sqlite';
+        } catch (sqliteError) {
+          console.log('⚠️ No se pudo determinar el tipo de base de datos');
+          console.log('💡 Ejecuta: npx prisma migrate dev');
+          return;
+        }
+      }
+      
+      // Convertir resultado a array simple para manejar diferentes formatos
+      const tables = Array.isArray(tablesResult) ? tablesResult : [tablesResult];
+      
+      console.log(`🎯 Base de datos detectada: ${dbType.toUpperCase()}`);
+      
+      if (tables.length > 0) {
+        console.log(`✅ Tablas verificadas: ${tables.length}/4`);
+        tables.forEach(table => {
+          console.log(`   - ${table.table_name}`);
+        });
+        
+        // Verificar si tenemos todas las tablas necesarias
+        if (tables.length < 4) {
+          console.log('⚠️ Faltan tablas por crear. Ejecuta: npx prisma migrate dev');
+        }
       } else {
-        console.log('⚠️ Ejecuta: npx prisma migrate dev');
+        console.log('⚠️ No se encontraron tablas principales');
+        console.log('💡 Ejecuta: npx prisma migrate dev');
       }
     } catch (dbError) {
-      console.log('⚠️ No se pudieron verificar las tablas');
+      console.log('⚠️ No se pudieron verificar las tablas:', dbError.message);
+      console.log('💡 Esto es normal si es la primera vez que ejecutas la app');
     }
     
   } catch (error) {
     console.error('❌ Error conectando a base de datos:', error.message);
+    
+    // Mostrar más detalles del error en desarrollo
+    if (process.env.NODE_ENV === 'development') {
+      console.error('🔍 Detalles del error:', {
+        code: error.code,
+        message: error.message,
+        meta: error.meta
+      });
+      console.log('💡 Verifica tu DATABASE_URL en el archivo .env');
+    }
+    
+    // Solo salir en producción si no hay base de datos
     if (process.env.NODE_ENV === 'production') {
-      console.error('🚨 Saliendo porque no hay BD en producción');
+      console.error('🚨 Error crítico: No se puede conectar a la base de datos en producción');
       process.exit(1);
     }
   }
@@ -421,57 +476,6 @@ const initializeDatabase = async () => {
 
 // Inicializar BD al arrancar
 initializeDatabase();
-
-// ============================================================================
-// CONFIGURACIÓN DE SERVIDOR ✅
-// ============================================================================
-const PORT = process.env.PORT || 3001;
-const HOST = process.env.HOST || '0.0.0.0';
-
-if (require.main === module) {
-  const server = app.listen(PORT, HOST, () => {
-    console.log('\n🚀 ========================================');
-    console.log('   BELLEZA ESTÉTICA API - INICIADO');
-    console.log('🚀 ========================================');
-    console.log(`🌐 Servidor: http://${HOST}:${PORT}`);
-    console.log(`📊 Health: http://${HOST}:${PORT}/health`);
-    console.log(`📚 Docs: http://${HOST}:${PORT}/docs/postman`);
-    console.log(`🔧 Entorno: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`📅 Iniciado: ${new Date().toLocaleString('es-AR')}`);
-    console.log('========================================\n');
-    
-    // Endpoints disponibles
-    console.log('📋 Endpoints principales:');
-    console.log('   🔐 POST /api/auth/login');
-    console.log('   🎭 POST /api/auth/demo-login');
-    console.log('   📊 GET  /api/dashboard');
-    console.log('   💆 GET  /api/appointments/treatments');
-    console.log('   📅 POST /api/appointments');
-    console.log('   💎 GET  /api/beauty-points');
-    console.log('   👑 GET  /api/vip/benefits');
-    console.log('   👤 GET  /api/profile');
-    console.log('   📖 GET  /docs/postman\n');
-    
-    console.log('🎯 Testing:');
-    console.log('   curl http://localhost:3001/health');
-    console.log('   curl -X POST http://localhost:3001/api/auth/demo-login\n');
-  });
-  
-  // Manejo de errores del servidor
-  server.on('error', (error) => {
-    if (error.code === 'EADDRINUSE') {
-      console.error(`❌ Puerto ${PORT} ya está en uso`);
-      console.log(`💡 Prueba: lsof -ti:${PORT} | xargs kill -9`);
-      process.exit(1);
-    } else {
-      console.error('❌ Error del servidor:', error);
-      process.exit(1);
-    }
-  });
-  
-  // Timeout del servidor
-  server.timeout = 30000; // 30 segundos
-}
 
 // ============================================================================
 // EXPORTAR APP (para testing) ✅

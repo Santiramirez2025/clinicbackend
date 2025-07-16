@@ -6,24 +6,6 @@ const { PrismaClient } = require('@prisma/client');
 
 const prisma = new PrismaClient();
 
-// Función para encontrar puerto disponible
-const findAvailablePort = async (startPort = 3000) => {
-  const net = require('net');
-  
-  return new Promise((resolve) => {
-    const server = net.createServer();
-    
-    server.listen(startPort, () => {
-      const port = server.address().port;
-      server.close(() => resolve(port));
-    });
-    
-    server.on('error', () => {
-      resolve(findAvailablePort(startPort + 1));
-    });
-  });
-};
-
 // Función para iniciar el servidor
 const startServer = async () => {
   try {
@@ -34,45 +16,37 @@ const startServer = async () => {
     await prisma.$connect();
     console.log('✅ Conectado a la base de datos PostgreSQL');
 
-    // Encontrar puerto disponible
-    const requestedPort = process.env.PORT || 3000;
-    const availablePort = await findAvailablePort(parseInt(requestedPort));
+    // Usar el puerto proporcionado por la plataforma o 3000 por defecto
+    const PORT = process.env.PORT || 3000;
     
-    if (availablePort !== parseInt(requestedPort)) {
-      console.log(`⚠️  Puerto ${requestedPort} ocupado, usando puerto ${availablePort}`);
-    }
-
     // Iniciar servidor
-    const server = app.listen(availablePort, () => {
+    const server = app.listen(PORT, '0.0.0.0', () => {
       console.log('\n🎉 ================================');
       console.log('   🚀 SERVIDOR INICIADO EXITOSAMENTE');
       console.log('🎉 ================================');
-      console.log(`📡 Puerto: ${availablePort}`);
-      console.log(`🌐 URL Local: http://localhost:${availablePort}`);
-      console.log(`💚 Health Check: http://localhost:${availablePort}/health`);
+      console.log(`📡 Puerto: ${PORT}`);
+      console.log(`🌐 URL Local: http://localhost:${PORT}`);
+      console.log(`💚 Health Check: http://localhost:${PORT}/health`);
       console.log(`🔧 Entorno: ${process.env.NODE_ENV || 'development'}`);
       console.log(`⏰ Hora de inicio: ${new Date().toLocaleString()}`);
       console.log('================================\n');
       
       console.log('📋 Endpoints de prueba:');
-      console.log(`  GET  http://localhost:${availablePort}/`);
-      console.log(`  GET  http://localhost:${availablePort}/health`);
-      console.log(`  GET  http://localhost:${availablePort}/api`);
-      console.log(`  POST http://localhost:${availablePort}/api/auth/demo-login`);
-      console.log(`  GET  http://localhost:${availablePort}/api/dashboard`);
+      console.log(`  GET  http://localhost:${PORT}/`);
+      console.log(`  GET  http://localhost:${PORT}/health`);
+      console.log(`  GET  http://localhost:${PORT}/api`);
+      console.log(`  POST http://localhost:${PORT}/api/auth/demo-login`);
+      console.log(`  GET  http://localhost:${PORT}/api/dashboard`);
       console.log('\n✨ Listo para recibir requests!\n');
     });
 
     // Manejo de errores del servidor
     server.on('error', (error) => {
+      console.error('❌ Error del servidor:', error);
       if (error.code === 'EADDRINUSE') {
-        console.log(`❌ Puerto ${availablePort} ya está en uso`);
-        console.log('💡 Intentando con otro puerto...');
-        startServer();
-      } else {
-        console.error('❌ Error del servidor:', error);
-        process.exit(1);
+        console.log(`❌ Puerto ${PORT} ya está en uso`);
       }
+      process.exit(1);
     });
 
     // Graceful shutdown
@@ -131,14 +105,24 @@ const startServer = async () => {
 
 // Verificar variables de entorno críticas
 const checkEnvironment = () => {
-  const required = ['DATABASE_URL', 'JWT_SECRET'];
+  const required = ['DATABASE_URL'];
   const missing = required.filter(key => !process.env[key]);
   
   if (missing.length > 0) {
     console.error('❌ Variables de entorno faltantes:');
     missing.forEach(key => console.error(`   - ${key}`));
-    console.log('\n💡 Crea un archivo .env con las variables necesarias');
+    console.log('\n💡 Configura las variables necesarias en tu plataforma de deploy');
     process.exit(1);
+  }
+
+  // Advertir sobre variables opcionales pero recomendadas
+  const recommended = ['JWT_SECRET', 'NODE_ENV'];
+  const missingRecommended = recommended.filter(key => !process.env[key]);
+  
+  if (missingRecommended.length > 0) {
+    console.warn('⚠️  Variables recomendadas no configuradas:');
+    missingRecommended.forEach(key => console.warn(`   - ${key}`));
+    console.log('');
   }
 };
 
