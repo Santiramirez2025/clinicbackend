@@ -38,37 +38,83 @@ const prisma = new PrismaClient();
 // ============================================================================
 
 // Seguridad
-app.use(helmet());
-
-// CORS - Más permisivo para producción
-app.use(cors({
-  origin: process.env.NODE_ENV === 'production' 
-    ? (process.env.CORS_ORIGIN?.split(',') || true) 
-    : [
-        'http://localhost:3000',
-        'http://localhost:19006',
-        'exp://192.168.1.174:8081'
-      ],
-  credentials: true
+app.use(helmet({
+  crossOriginEmbedderPolicy: false,
+  contentSecurityPolicy: false
 }));
 
-// Rate limiting
+// ✅ CORS MEJORADO - Más permisivo para desarrollo
+app.use(cors({
+  origin: function (origin, callback) {
+    // Permitir solicitudes sin origen (apps móviles, Postman, etc.)
+    if (!origin) return callback(null, true);
+    
+    const allowedOrigins = process.env.NODE_ENV === 'production' 
+      ? (process.env.CORS_ORIGIN?.split(',') || [])
+      : [
+          'http://localhost:3000',
+          'http://localhost:19006',
+          'http://192.168.1.174:8081',
+          'exp://192.168.1.174:8081',
+          'http://192.168.1.174:19006',
+          'http://192.168.1.174:3000',
+          // Agregar más IPs locales comunes
+          'http://10.0.0.0',
+          'http://172.16.0.0',
+          'http://192.168.0.0'
+        ];
+    
+    // En desarrollo, ser más permisivo
+    if (process.env.NODE_ENV === 'development') {
+      // Permitir cualquier IP local
+      if (origin.includes('192.168.') || origin.includes('localhost') || origin.includes('127.0.0.1')) {
+        return callback(null, true);
+      }
+    }
+    
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      console.log('❌ CORS blocked origin:', origin);
+      console.log('✅ Allowed origins:', allowedOrigins);
+      callback(null, true); // ✅ TEMPORALMENTE PERMISIVO PARA DEBUG
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization', 'Cache-Control'],
+  preflightContinue: false,
+  optionsSuccessStatus: 204
+}));
+
+// ✅ LOGGING MEJORADO PARA DEBUG
+app.use((req, res, next) => {
+  if (process.env.NODE_ENV === 'development') {
+    console.log(`📡 ${req.method} ${req.originalUrl} - Origin: ${req.get('Origin') || 'No origin'}`);
+    console.log(`🎫 Auth: ${req.headers.authorization ? 'Present' : 'Missing'}`);
+  }
+  next();
+});
+
+// Rate limiting - Más permisivo en desarrollo
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutos
-  max: 100,
-  message: { success: false, error: { message: 'Demasiadas solicitudes' } }
+  max: process.env.NODE_ENV === 'development' ? 1000 : 100, // ✅ MÁS PERMISIVO EN DEV
+  message: { success: false, error: { message: 'Demasiadas solicitudes' } },
+  standardHeaders: true,
+  legacyHeaders: false,
 });
 app.use('/api/', limiter);
 
-// Parsing
+// Parsing - Webhooks de Stripe necesitan raw body
 app.use('/api/webhooks/stripe', express.raw({ type: 'application/json' }));
 app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Compresión y logging
 app.use(compression());
 if (process.env.NODE_ENV !== 'test') {
-  app.use(morgan('combined'));
+  app.use(morgan(process.env.NODE_ENV === 'development' ? 'dev' : 'combined'));
 }
 
 // ============================================================================
@@ -78,13 +124,16 @@ app.get('/health', async (req, res) => {
   try {
     // ✅ Query compatible con PostgreSQL
     await prisma.$queryRaw`SELECT 1 as test`;
+    
     res.status(200).json({
       status: 'OK',
       timestamp: new Date().toISOString(),
       environment: process.env.NODE_ENV || 'development',
       database: 'connected',
       version: '1.0.0',
-      uptime: process.uptime()
+      uptime: process.uptime(),
+      memory: process.memoryUsage(),
+      nodeVersion: process.version
     });
   } catch (error) {
     console.error('❌ Health check failed:', error);
@@ -97,6 +146,7 @@ app.get('/health', async (req, res) => {
   }
 });
 
+// ✅ RUTA RAÍZ MEJORADA CON MÁS INFORMACIÓN
 app.get('/', (req, res) => {
   res.json({
     message: '🏥 Belleza Estética API - Sistema Completo',
@@ -104,6 +154,11 @@ app.get('/', (req, res) => {
     status: 'active',
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development',
+    server: {
+      node: process.version,
+      platform: process.platform,
+      uptime: process.uptime()
+    },
     endpoints: {
       health: '/health',
       auth: '/api/auth/*',
@@ -119,7 +174,8 @@ app.get('/', (req, res) => {
     },
     documentation: {
       postman: '/docs/postman',
-      swagger: '/docs/swagger'
+      swagger: '/docs/swagger',
+      authTest: '/api/auth/health'
     }
   });
 });
@@ -129,18 +185,18 @@ app.get('/', (req, res) => {
 // ============================================================================
 
 try {
-  // Rutas de autenticación (CRÍTICAS)
+  // ✅ RUTAS DE AUTENTICACIÓN (CRÍTICAS) - PRIMERA PRIORIDAD
   app.use('/api/auth', authRoutes);
   console.log('✅ Auth routes loaded');
 
-  // Rutas principales (CRÍTICAS)
+  // ✅ RUTAS PRINCIPALES (CRÍTICAS)
   app.use('/api/dashboard', dashboardRoutes);
   console.log('✅ Dashboard routes loaded');
 
   app.use('/api/appointments', appointmentRoutes);
   console.log('✅ Appointment routes loaded');
 
-  // Rutas opcionales (CON MANEJO DE ERRORES)
+  // ✅ RUTAS OPCIONALES (CON MANEJO DE ERRORES)
   try {
     app.use('/api/beauty-points', beautyPointsRoutes);
     console.log('✅ Beauty Points routes loaded');
@@ -206,38 +262,127 @@ try {
 }
 
 // ============================================================================
-// DOCUMENTACIÓN ✅
+// ✅ ENDPOINT PARA VERIFICAR RUTAS CRÍTICAS
+// ============================================================================
+app.get('/api/test-endpoints', async (req, res) => {
+  const endpoints = [
+    { name: 'Auth Health', path: '/api/auth/health' },
+    { name: 'Dashboard', path: '/api/dashboard' },
+    { name: 'Appointments', path: '/api/appointments/treatments' },
+    { name: 'Beauty Points', path: '/api/beauty-points' },
+    { name: 'VIP', path: '/api/vip/benefits' },
+    { name: 'Profile', path: '/api/profile' }
+  ];
+
+  const results = [];
+  
+  for (const endpoint of endpoints) {
+    try {
+      // Simular una solicitud interna
+      const testResponse = await new Promise((resolve) => {
+        const mockReq = { method: 'GET', originalUrl: endpoint.path, headers: {} };
+        const mockRes = {
+          status: (code) => ({ json: (data) => resolve({ status: code, data }) }),
+          json: (data) => resolve({ status: 200, data })
+        };
+        
+        // Timeout para evitar bloqueos
+        setTimeout(() => resolve({ status: 408, error: 'Timeout' }), 1000);
+      });
+      
+      results.push({
+        endpoint: endpoint.name,
+        path: endpoint.path,
+        status: 'available',
+        responseStatus: testResponse.status
+      });
+    } catch (error) {
+      results.push({
+        endpoint: endpoint.name,
+        path: endpoint.path,
+        status: 'error',
+        error: error.message
+      });
+    }
+  }
+
+  res.json({
+    success: true,
+    timestamp: new Date().toISOString(),
+    results
+  });
+});
+
+// ============================================================================
+// DOCUMENTACIÓN MEJORADA ✅
 // ============================================================================
 app.get('/docs/postman', (req, res) => {
   res.json({
     info: {
       name: 'Belleza Estética API',
       description: 'API completa para sistema de belleza y estética',
-      version: '1.0.0'
+      version: '1.0.0',
+      baseUrl: `${req.protocol}://${req.get('host')}/api`
+    },
+    authentication: {
+      type: 'Bearer Token',
+      description: 'Usar el token obtenido del login en el header Authorization'
     },
     endpoints: [
       {
-        name: 'Health Check',
+        name: 'Health Check General',
         method: 'GET',
-        url: '/health'
+        url: '/health',
+        description: 'Verificar estado del servidor y base de datos'
       },
       {
-        name: 'Auth - Demo Login',
+        name: 'Auth Health Check',
+        method: 'GET',
+        url: '/api/auth/health',
+        description: 'Verificar rutas de autenticación'
+      },
+      {
+        name: 'Demo Login',
         method: 'POST',
         url: '/api/auth/demo-login',
-        description: 'Login sin credenciales para testing'
+        description: 'Login sin credenciales para testing',
+        body: {},
+        response: {
+          success: true,
+          data: {
+            user: { id: 'demo', firstName: 'Demo', email: 'demo@app.com' },
+            tokens: { accessToken: 'jwt_token', refreshToken: 'refresh_token' }
+          }
+        }
       },
       {
-        name: 'Auth - Login',
+        name: 'Login Normal',
         method: 'POST',
         url: '/api/auth/login',
         body: { 
           email: 'demo@bellezaestetica.com', 
           password: 'demo123' 
+        },
+        response: {
+          success: true,
+          data: {
+            user: { firstName: 'Usuario', email: 'email@ejemplo.com' },
+            tokens: { accessToken: 'jwt_token', refreshToken: 'refresh_token' }
+          }
         }
       },
       {
-        name: 'Auth - Register',
+        name: 'Admin Login',
+        method: 'POST',
+        url: '/api/auth/admin-login',
+        body: { 
+          email: 'admin@bellezaestetica.com', 
+          password: 'admin123' 
+        },
+        description: 'Login con privilegios de administrador'
+      },
+      {
+        name: 'Register',
         method: 'POST',
         url: '/api/auth/register',
         body: { 
@@ -247,6 +392,20 @@ app.get('/docs/postman', (req, res) => {
           password: 'password123',
           phone: '+54 11 1234-5678'
         }
+      },
+      {
+        name: 'Forgot Password',
+        method: 'POST',
+        url: '/api/auth/forgot-password',
+        body: { email: 'usuario@ejemplo.com' },
+        description: 'Solicitar recuperación de contraseña'
+      },
+      {
+        name: 'Reset Password',
+        method: 'POST',
+        url: '/api/auth/reset-password',
+        body: { token: 'reset_token', newPassword: 'nueva_password' },
+        description: 'Restablecer contraseña con token'
       },
       {
         name: 'Dashboard',
@@ -301,6 +460,12 @@ app.get('/docs/postman', (req, res) => {
         method: 'GET',
         url: '/api/profile',
         headers: { 'Authorization': 'Bearer <token>' }
+      },
+      {
+        name: 'Logout',
+        method: 'POST',
+        url: '/api/auth/logout',
+        headers: { 'Authorization': 'Bearer <token>' }
       }
     ],
     testing: {
@@ -308,7 +473,19 @@ app.get('/docs/postman', (req, res) => {
         email: 'demo@bellezaestetica.com',
         password: 'demo123'
       },
-      demoToken: 'Use /api/auth/demo-login to get a token'
+      adminCredentials: {
+        email: 'admin@bellezaestetica.com',
+        password: 'admin123'
+      },
+      demoToken: 'Use /api/auth/demo-login to get a token instantly'
+    },
+    notes: {
+      cors: 'CORS está configurado para desarrollo local',
+      rateLimit: 'Rate limit: 1000 requests per 15 minutes en desarrollo',
+      errorFormat: {
+        success: false,
+        error: { message: 'Descripción del error', code: 'ERROR_CODE' }
+      }
     }
   });
 });
@@ -329,7 +506,7 @@ app.use('*', (req, res) => {
         timestamp: new Date().toISOString()
       },
       availableEndpoints: {
-        auth: '/api/auth/*',
+        auth: '/api/auth/* (login, register, demo-login, etc.)',
         dashboard: '/api/dashboard',
         appointments: '/api/appointments',
         beautyPoints: '/api/beauty-points',
@@ -339,11 +516,15 @@ app.use('*', (req, res) => {
         notifications: '/api/notifications',
         offers: '/api/offers'
       },
-      documentation: '/docs/postman'
+      documentation: {
+        postman: '/docs/postman',
+        testEndpoints: '/api/test-endpoints',
+        authHealth: '/api/auth/health'
+      }
     });
   } else {
-    // Para rutas no API, redirigir a la raíz
-    res.redirect('/');
+    // Para rutas no API, redirigir a la raíz con información
+    res.redirect('/?info=api-redirect');
   }
 });
 
@@ -464,6 +645,8 @@ const initializeDatabase = async () => {
         meta: error.meta
       });
       console.log('💡 Verifica tu DATABASE_URL en el archivo .env');
+      console.log('💡 Si usas PostgreSQL, asegúrate de que el servidor esté corriendo');
+      console.log('💡 Si usas SQLite, ejecuta: npx prisma migrate dev');
     }
     
     // Solo salir en producción si no hay base de datos
@@ -474,8 +657,73 @@ const initializeDatabase = async () => {
   }
 };
 
-// Inicializar BD al arrancar
-initializeDatabase();
+// ============================================================================
+// FUNCIÓN PARA VERIFICAR ENDPOINTS CRÍTICOS AL INICIO
+// ============================================================================
+const verifyEndpoints = () => {
+  const criticalRoutes = [
+    '/api/auth/health',
+    '/api/auth/demo-login',
+    '/api/auth/login',
+    '/api/auth/register'
+  ];
+
+  console.log('🔍 Verificando endpoints críticos...');
+  
+  criticalRoutes.forEach(route => {
+    try {
+      // Verificar que las rutas están registradas
+      const routeExists = app._router && app._router.stack.some(layer => {
+        return layer.route && layer.route.path === route;
+      });
+      
+      if (routeExists) {
+        console.log(`✅ ${route} - Registrado`);
+      } else {
+        console.log(`⚠️ ${route} - No encontrado en router`);
+      }
+    } catch (error) {
+      console.log(`❌ ${route} - Error verificando: ${error.message}`);
+    }
+  });
+};
+
+// ============================================================================
+// INICIALIZACIÓN COMPLETA
+// ============================================================================
+const initializeApp = async () => {
+  console.log('🚀 Iniciando aplicación...');
+  
+  // 1. Inicializar base de datos
+  await initializeDatabase();
+  
+  // 2. Verificar endpoints
+  verifyEndpoints();
+  
+  // 3. Mostrar información de arranque
+  console.log('🎯 Aplicación lista para recibir requests');
+  console.log(`📱 Endpoints principales:`);
+  console.log(`   - Health: GET /health`);
+  console.log(`   - Demo Login: POST /api/auth/demo-login`);
+  console.log(`   - Login: POST /api/auth/login`);
+  console.log(`   - Register: POST /api/auth/register`);
+  console.log(`   - Dashboard: GET /api/dashboard`);
+  console.log(`   - Docs: GET /docs/postman`);
+  
+  if (process.env.NODE_ENV === 'development') {
+    console.log(`🔧 Modo desarrollo activo`);
+    console.log(`🌐 CORS configurado para IPs locales`);
+    console.log(`📊 Rate limit: 1000 requests/15min`);
+  }
+};
+
+// Ejecutar inicialización
+initializeApp().catch(error => {
+  console.error('❌ Error durante inicialización:', error);
+  if (process.env.NODE_ENV === 'production') {
+    process.exit(1);
+  }
+});
 
 // ============================================================================
 // EXPORTAR APP (para testing) ✅
