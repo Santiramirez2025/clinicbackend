@@ -1,16 +1,25 @@
 version: '3.8'
-services:
-  postgres:
-    image: postgres:15
-    container_name: clinic_postgres
-    environment:
-      POSTGRES_DB: clinic_db
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: clinic_password
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
 
-volumes:
-  postgres_data:
+services:
+  clinic-backend:
+    build: .
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    volumes:
+      # Persistir la base de datos SQLite
+      - ./data:/usr/src/app/data
+      # Opcional: persistir archivos de la aplicación
+      - ./uploads:/usr/src/app/uploads
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=file:./data/dev.db
+    user: "1001:1001"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
