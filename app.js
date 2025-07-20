@@ -254,12 +254,20 @@ try {
 // RUTAS ADMIN (OPCIONALES) ✅
 // ============================================================================
 try {
+  // ✅ MONTAR RUTAS ADMIN PRINCIPALES (incluye /test)
+  const adminRoutes = require('./src/routes/admin');
+  app.use('/api/admin', adminRoutes);
+  console.log('✅ Admin main routes loaded');
+ 
+  // ✅ MONTAR RUTAS ADMIN DASHBOARD ESPECÍFICAS
   const adminDashboardRoutes = require('./src/routes/admin/dashboard');
   app.use('/api/admin/dashboard', adminDashboardRoutes);
-  console.log('✅ Admin routes loaded');
-} catch (error) {
+  console.log('✅ Admin dashboard routes loaded');
+  
+ } catch (error) {
   console.log('⚠️ Admin routes not found, skipping...');
-}
+  console.log('❌ Error:', error.message);
+ }
 
 // ============================================================================
 // ✅ ENDPOINT PARA VERIFICAR RUTAS CRÍTICAS

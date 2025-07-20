@@ -55,19 +55,69 @@ const verifyToken = async (req, res, next) => {
     // MANEJAR SEGÚN TIPO DE TOKEN
     switch (tokenType) {
       case 'admin':
-        // Token de administrador - procesarlo como admin
-        const clinic = await prisma.clinic.findUnique({
-          where: { id: decoded.clinicId },
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            subscriptionPlan: true
+        // Token de administrador - buscar por email o crear clínica por defecto
+        let clinic = null;
+        
+        // 1. Intentar buscar por clinicId si existe
+        if (decoded.clinicId) {
+          clinic = await prisma.clinic.findUnique({
+            where: { id: decoded.clinicId },
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              subscriptionPlan: true
+            }
+          });
+        }
+        
+        // 2. Si no existe, buscar por email
+        if (!clinic && decoded.email) {
+          clinic = await prisma.clinic.findUnique({
+            where: { email: decoded.email },
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              subscriptionPlan: true
+            }
+          });
+        }
+        
+        // 3. Si aún no existe, crear clínica por defecto
+        if (!clinic) {
+          console.log('🏥 Creando clínica por defecto para admin token...');
+          const adminEmail = decoded.email || 'admin@bellezaestetica.com';
+          
+          try {
+            clinic = await prisma.clinic.create({
+              data: {
+                name: 'Belleza Estética Premium',
+                email: adminEmail,
+                subscriptionPlan: 'PREMIUM',
+                subscriptionExpiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+                settings: JSON.stringify({
+                  timezone: 'Europe/Madrid',
+                  currency: 'EUR',
+                  language: 'es'
+                })
+              },
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                subscriptionPlan: true
+              }
+            });
+            console.log('✅ Clínica creada para admin token:', clinic.name);
+          } catch (createError) {
+            console.error('❌ Error creando clínica para admin token:', createError);
+            throw new AppError('Error configurando clínica de administrador', 500);
           }
-        });
+        }
 
         if (!clinic) {
-          throw new AppError('Clínica no encontrada', 401);
+          throw new AppError('No se pudo configurar la clínica de administrador', 401);
         }
 
         req.user = {
@@ -97,7 +147,7 @@ const verifyToken = async (req, res, next) => {
         break;
 
       case 'user':
-        // Token de usuario normal
+        // Token de usuario normal - CAMPO 'role' REMOVIDO ❌ -> ✅
         const user = await prisma.user.findUnique({
           where: { id: decoded.userId },
           select: {
@@ -106,7 +156,6 @@ const verifyToken = async (req, res, next) => {
             firstName: true,
             lastName: true,
             vipStatus: true,
-            role: true,
             beautyPoints: true,
             sessionsCompleted: true
           }
@@ -119,7 +168,7 @@ const verifyToken = async (req, res, next) => {
         req.user = {
           ...user,
           userId: user.id,
-          role: user.role || 'patient'
+          role: 'patient' // Asignar rol por defecto
         };
         break;
 
@@ -326,9 +375,20 @@ const optionalAuth = async (req, res, next) => {
     
     switch (tokenType) {
       case 'admin':
-        const clinic = await prisma.clinic.findUnique({
-          where: { id: decoded.clinicId }
-        });
+        let clinic = null;
+        
+        if (decoded.clinicId) {
+          clinic = await prisma.clinic.findUnique({
+            where: { id: decoded.clinicId }
+          });
+        }
+        
+        if (!clinic && decoded.email) {
+          clinic = await prisma.clinic.findUnique({
+            where: { email: decoded.email }
+          });
+        }
+        
         req.user = clinic ? {
           id: clinic.id,
           email: clinic.email,
@@ -349,13 +409,23 @@ const optionalAuth = async (req, res, next) => {
         break;
 
       case 'user':
+        // TAMBIÉN AQUÍ REMOVEMOS 'role' DEL SELECT ❌ -> ✅
         const user = await prisma.user.findUnique({
-          where: { id: decoded.userId }
+          where: { id: decoded.userId },
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+            vipStatus: true,
+            beautyPoints: true,
+            sessionsCompleted: true
+          }
         });
         req.user = user ? {
           ...user,
           userId: user.id,
-          role: 'patient'
+          role: 'patient' // Asignar rol por defecto
         } : null;
         break;
 
