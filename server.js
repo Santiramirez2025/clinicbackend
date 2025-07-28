@@ -1,5 +1,5 @@
 // ============================================================================
-// server.js - SERVIDOR MEJORADO CON MANEJO DE ERRORES PARA SQLITE
+// server.js - SERVIDOR MEJORADO CON SOPORTE POSTGRESQL Y SQLITE
 // ============================================================================
 const app = require('./app');
 const { PrismaClient } = require('@prisma/client');
@@ -8,30 +8,38 @@ const path = require('path');
 
 let prisma;
 
-// Función para inicializar la base de datos SQLite
+// Función para inicializar la base de datos
 const initDatabase = async () => {
   try {
-    console.log('🔄 Inicializando base de datos SQLite...');
+    console.log('🔄 Inicializando base de datos...');
     
-    // Crear directorio de datos si no existe
-    const dataDir = path.join(__dirname, 'data');
-    if (!fs.existsSync(dataDir)) {
-      fs.mkdirSync(dataDir, { recursive: true });
-      console.log('📁 Directorio de datos creado');
-    }
-    
-    // Verificar y corregir DATABASE_URL si es necesario
+    // Verificar y configurar DATABASE_URL
     let dbUrl = process.env.DATABASE_URL;
     
     if (!dbUrl) {
       dbUrl = 'file:./dev.db';
-      console.log('⚠️ DATABASE_URL no encontrada, usando valor por defecto');
+      console.log('⚠️ DATABASE_URL no encontrada, usando SQLite por defecto');
     }
     
-    // Asegurar que la URL tiene el prefijo correcto para SQLite
-    if (!dbUrl.startsWith('file:')) {
-      dbUrl = `file:${dbUrl}`;
-      console.log('🔧 Corrigiendo formato de DATABASE_URL para SQLite');
+    // Determinar tipo de base de datos y configurar URL
+    if (dbUrl.startsWith('postgresql://') || dbUrl.startsWith('postgres://')) {
+      console.log('🔄 Usando PostgreSQL...');
+      // No modificar dbUrl para PostgreSQL
+    } else {
+      console.log('🔄 Usando SQLite...');
+      
+      // Crear directorio de datos si no existe (solo para SQLite)
+      const dataDir = path.join(__dirname, 'data');
+      if (!fs.existsSync(dataDir)) {
+        fs.mkdirSync(dataDir, { recursive: true });
+        console.log('📁 Directorio de datos creado');
+      }
+      
+      // Asegurar prefijo file: para SQLite
+      if (!dbUrl.startsWith('file:')) {
+        dbUrl = `file:${dbUrl}`;
+        console.log('🔧 Corrigiendo formato para SQLite');
+      }
     }
     
     // Actualizar variable de entorno
@@ -51,7 +59,7 @@ const initDatabase = async () => {
     
     // Probar conexión
     await prisma.$connect();
-    console.log('✅ Conectado a la base de datos SQLite');
+    console.log('✅ Conectado a la base de datos exitosamente');
     
     return prisma;
     
@@ -61,7 +69,14 @@ const initDatabase = async () => {
     // Intentos de recuperación para errores comunes
     if (error.message.includes('protocol')) {
       console.log('🔧 Intentando corregir URL de base de datos...');
-      process.env.DATABASE_URL = `file:${process.env.DATABASE_URL.replace('file:', '')}`;
+      const currentUrl = process.env.DATABASE_URL;
+      if (currentUrl.includes('postgresql://') || currentUrl.includes('postgres://')) {
+        // Para PostgreSQL, no agregar prefijo file:
+        process.env.DATABASE_URL = currentUrl.replace('file:', '');
+      } else {
+        // Para SQLite, asegurar prefijo file:
+        process.env.DATABASE_URL = `file:${currentUrl.replace('file:', '')}`;
+      }
       return initDatabase();
     }
     
@@ -86,13 +101,16 @@ const startServer = async () => {
   try {
     console.log('🚀 Iniciando servidor...\n');
 
-    // Inicializar base de datos SQLite
+    // Inicializar base de datos
     console.log('🔍 Verificando conexión a base de datos...');
     await initDatabase();
-    console.log('✅ Base de datos SQLite inicializada correctamente');
+    console.log('✅ Base de datos inicializada correctamente');
 
     // Usar el puerto proporcionado por la plataforma o 3000 por defecto
     const PORT = process.env.PORT || 3000;
+    
+    // Determinar tipo de base de datos para logging
+    const dbType = process.env.DATABASE_URL?.startsWith('postgresql') ? 'PostgreSQL' : 'SQLite';
     
     // Iniciar servidor
     const server = app.listen(PORT, '0.0.0.0', () => {
@@ -103,7 +121,7 @@ const startServer = async () => {
       console.log(`🌐 URL Local: http://localhost:${PORT}`);
       console.log(`💚 Health Check: http://localhost:${PORT}/health`);
       console.log(`🔧 Entorno: ${process.env.NODE_ENV || 'development'}`);
-      console.log(`🗄️ Base de datos: SQLite`);
+      console.log(`🗄️ Base de datos: ${dbType}`);
       console.log(`⏰ Hora de inicio: ${new Date().toLocaleString()}`);
       console.log('================================\n');
       
@@ -171,18 +189,20 @@ const startServer = async () => {
     console.error('❌ Error iniciando servidor:', error);
     
     if (error.code === 'P1012') {
-      console.log('\n💡 Consejos para solucionar problemas de SQLite:');
-      console.log('1. Verifica que DATABASE_URL tenga formato: file:./dev.db');
-      console.log('2. Asegúrate de que el directorio tenga permisos de escritura');
-      console.log('3. Ejecuta: npx prisma migrate dev');
-      console.log('4. Verifica que no haya otros procesos usando la base de datos');
+      console.log('\n💡 Consejos para solucionar problemas de base de datos:');
+      console.log('1. Verifica que DATABASE_URL tenga el formato correcto');
+      console.log('2. Para SQLite: file:./dev.db');
+      console.log('3. Para PostgreSQL: postgresql://user:pass@host:port/db');
+      console.log('4. Ejecuta: npx prisma migrate dev');
+      console.log('5. Verifica que no haya otros procesos usando la base de datos');
     }
     
     if (error.code === 'P1001') {
       console.log('\n💡 Consejos para solucionar problemas de conexión:');
       console.log('1. Verifica que la ruta de la base de datos sea accesible');
-      console.log('2. Revisa permisos del directorio');
-      console.log('3. Asegúrate de que el archivo no esté siendo usado por otro proceso');
+      console.log('2. Revisa permisos del directorio (SQLite)');
+      console.log('3. Verifica credenciales de conexión (PostgreSQL)');
+      console.log('4. Asegúrate de que el servidor esté disponible');
     }
     
     process.exit(1);
@@ -191,7 +211,7 @@ const startServer = async () => {
 
 // Verificar variables de entorno críticas
 const checkEnvironment = () => {
-  // Para SQLite, DATABASE_URL es opcional (usaremos valor por defecto)
+  // DATABASE_URL es opcional (usaremos valor por defecto para SQLite)
   const recommended = ['DATABASE_URL'];
   const missing = recommended.filter(key => !process.env[key]);
   
@@ -218,10 +238,10 @@ checkEnvironment();
 startServer();
 
 // ============================================================================
-// COMANDOS ÚTILES DE DEPURACIÓN PARA SQLITE
+// COMANDOS ÚTILES DE DEPURACIÓN
 // ============================================================================
 /*
-Si tienes problemas con SQLite, prueba estos comandos:
+Si tienes problemas, prueba estos comandos:
 
 # Ver qué está usando el puerto 3000
 lsof -i :3000
@@ -238,21 +258,24 @@ ps aux | grep node
 # Ejecutar en puerto diferente
 PORT=3001 npm run dev
 
-# Verificar base de datos SQLite
+# Verificar base de datos
 npx prisma studio
 
 # Verificar migraciones
 npx prisma migrate status
 
-# Resetear base de datos SQLite
+# Para SQLite - Resetear base de datos
 npx prisma migrate reset
 
-# Verificar permisos del directorio
+# Para PostgreSQL - Aplicar schema
+npx prisma db push
+
+# Verificar permisos del directorio (SQLite)
 ls -la ./data/
 
-# Verificar archivo de base de datos
+# Verificar archivo de base de datos (SQLite)
 file ./dev.db
 
-# Verificar contenido de la base de datos
+# Verificar contenido de la base de datos (SQLite)
 sqlite3 ./dev.db ".tables"
 */
