@@ -4,19 +4,22 @@ const fs = require('fs');
 const path = require('path');
 
 async function initDatabase() {
-  console.log('🔄 Inicializando base de datos SQLite...');
+  console.log('🔄 Inicializando base de datos...');
   
   try {
-    // Crear directorio de datos si no existe
-    const dataDir = path.join(__dirname, 'data');
-    if (!fs.existsSync(dataDir)) {
-      fs.mkdirSync(dataDir, { recursive: true });
-      console.log('📁 Directorio de datos creado');
+    // Solo crear directorio de datos para SQLite
+    if (process.env.DATABASE_URL.startsWith('file:')) {
+      const dataDir = path.join(__dirname, 'data');
+      if (!fs.existsSync(dataDir)) {
+        fs.mkdirSync(dataDir, { recursive: true });
+        console.log('📁 Directorio de datos creado');
+      }
+      
+      const dbPath = path.join(__dirname, 'dev.db');
+      console.log('🔍 Verificando ruta de base de datos:', dbPath);
+    } else {
+      console.log('🔍 Usando base de datos PostgreSQL externa');
     }
-    
-    // Verificar que el archivo de base de datos sea accesible
-    const dbPath = path.join(__dirname, 'dev.db');
-    console.log('🔍 Verificando ruta de base de datos:', dbPath);
     
     // Inicializar Prisma Client
     const prisma = new PrismaClient({
@@ -55,17 +58,24 @@ async function initDatabase() {
   } catch (error) {
     console.error('❌ Error inicializando base de datos:', error);
     
-    // Si hay error de protocolo, intentar corregir la URL
+    // ✅ LÓGICA CORREGIDA: Solo modificar URLs SQLite
     if (error.message.includes('protocol')) {
-      console.log('🔧 Intentando corregir URL de base de datos...');
+      console.log('🔧 Verificando URL de base de datos...');
       
-      // Asegurar que la URL tiene el prefijo correcto
-      if (!process.env.DATABASE_URL.startsWith('file:')) {
-        process.env.DATABASE_URL = `file:${process.env.DATABASE_URL}`;
+      // NO modificar URLs PostgreSQL
+      if (process.env.DATABASE_URL.startsWith('postgresql://') || 
+          process.env.DATABASE_URL.startsWith('postgres://')) {
+        console.log('⚠️ Error de conexión PostgreSQL - verificar credenciales');
+        throw error; // No modificar URLs PostgreSQL
       }
       
-      console.log('🔄 Reintentando conexión...');
-      return initDatabase();
+      // Solo añadir 'file:' para SQLite
+      if (!process.env.DATABASE_URL.startsWith('file:')) {
+        console.log('🔧 Corrigiendo formato para SQLite...');
+        process.env.DATABASE_URL = `file:${process.env.DATABASE_URL}`;
+        console.log('🔄 Reintentando conexión...');
+        return initDatabase();
+      }
     }
     
     throw error;

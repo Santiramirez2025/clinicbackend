@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "sqlite"  // ✅ Cambiado de sqlite a postgresql
   url      = env("DATABASE_URL")
 }
 
@@ -88,7 +88,7 @@ model Clinic {
   treatments            Treatment[]
   appointments          Appointment[]
   rewardTemplates       RewardTemplate[]
-  offers                Offer[] // ✅ NUEVA RELACIÓN OFERTAS
+  offers                Offer[]
   
   @@map("clinics")
 }
@@ -153,7 +153,7 @@ model Appointment {
   professional          Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
   treatment             Treatment    @relation(fields: [treatmentId], references: [id], onDelete: Cascade)
   rewardRedemptions     RewardRedemption[]
-  offerRedemptions      OfferRedemption[] // ✅ NUEVA RELACIÓN OFERTAS
+  offerRedemptions      OfferRedemption[]
   
   @@map("appointments")
 }
@@ -267,25 +267,23 @@ model Offer {
   @@map("offers")
 }
 
-// Nueva tabla para tracking de canjes de ofertas
 model OfferRedemption {
   id           String   @id @default(cuid())
   offerId      String   @map("offer_id")
   userId       String   @map("user_id")
-  appointmentId String? @map("appointment_id") // Si se usa en una cita
+  appointmentId String? @map("appointment_id")
   redeemedAt   DateTime @default(now()) @map("redeemed_at")
   originalPrice Float   @map("original_price")
   discountApplied Float @map("discount_applied")
   finalPrice   Float    @map("final_price")
   status       String   @default("ACTIVE") // ACTIVE, USED, EXPIRED, CANCELLED
-  code         String   @unique // Código único para validar
+  code         String   @unique
   usedAt       DateTime? @map("used_at")
   expiresAt    DateTime @map("expires_at")
   notes        String?
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
   
-  // Relaciones
   offer        Offer @relation(fields: [offerId], references: [id], onDelete: Cascade)
   user         User  @relation(fields: [userId], references: [id], onDelete: Cascade)
   appointment  Appointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
@@ -390,7 +388,7 @@ model NotificationLog {
   delivered   Boolean  @default(false)
   opened      Boolean  @default(false)
   data        String?  // JSON adicional
-  pushToken   String?  @map("push_token") // Token usado para enviar
+  pushToken   String?  @map("push_token")
   platform    String?  // ios, android
   error       String?  // Error si falla el envío
   createdAt   DateTime @default(now()) @map("created_at")
@@ -439,14 +437,14 @@ model RewardRedemption {
   id               String   @id @default(cuid())
   userId           String   @map("user_id")
   templateId       String   @map("template_id")
-  code             String   @unique // Código único para validar
+  code             String   @unique
   status           String   @default("ACTIVE") // ACTIVE, USED, EXPIRED, CANCELLED
   pointsUsed       Int      @map("points_used")
-  discountAmount   Float?   @map("discount_amount") // Monto exacto descontado
+  discountAmount   Float?   @map("discount_amount")
   expiresAt        DateTime @map("expires_at")
   usedAt           DateTime? @map("used_at")
-  appointmentId    String?  @map("appointment_id") // Si se usa en cita
-  notes            String?  // Notas adicionales del canje
+  appointmentId    String?  @map("appointment_id")
+  notes            String?
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
   

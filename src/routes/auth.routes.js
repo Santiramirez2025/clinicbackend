@@ -1,13 +1,23 @@
 // ============================================================================
-// src/routes/auth.routes.js - RUTAS COMPLETAS CON ADMIN LOGIN ✅
+// src/routes/auth.routes.js - RUTAS COMPLETAS CON ADMIN LOGIN Y GOOGLE LOGIN ✅
 // ============================================================================
 const express = require('express');
 const { body } = require('express-validator');
+const { OAuth2Client } = require('google-auth-library');
+const jwt = require('jsonwebtoken');
+const { PrismaClient } = require('@prisma/client');
 const AuthController = require('../controllers/auth.controller');
 const { asyncHandler } = require('../utils/asyncHandler');
 const { verifyToken } = require('../middleware/auth.middleware');
 
 const router = express.Router();
+const prisma = new PrismaClient();
+
+// Configurar cliente OAuth de Google
+const googleClient = new OAuth2Client({
+  clientId: process.env.GOOGLE_CLIENT_ID,
+  clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+});
 
 // ========================================================================
 // MIDDLEWARE DE DEBUG PARA DESARROLLO
@@ -86,6 +96,32 @@ const adminLoginValidation = [
     .withMessage('Contraseña de administrador requerida')
 ];
 
+const googleLoginValidation = [
+  body('email')
+    .isEmail()
+    .normalizeEmail()
+    .withMessage('Email inválido'),
+  body('googleId')
+    .notEmpty()
+    .withMessage('Google ID requerido'),
+  body('firstName')
+    .optional()
+    .trim()
+    .isLength({ min: 1, max: 50 })
+    .withMessage('El nombre debe tener entre 1 y 50 caracteres'),
+  body('lastName')
+    .optional()
+    .trim()
+    .isLength({ min: 1, max: 50 })
+    .withMessage('El apellido debe tener entre 1 y 50 caracteres'),
+  body().custom((value) => {
+    if (!value.googleAccessToken && !value.googleIdToken) {
+      throw new Error('Se requiere googleAccessToken o googleIdToken');
+    }
+    return true;
+  })
+];
+
 const forgotPasswordValidation = [
   body('email')
     .isEmail()
@@ -147,6 +183,7 @@ router.get('/health', (req, res) => {
         'POST /api/auth/demo-login', 
         'POST /api/auth/register',
         'POST /api/auth/admin-login',
+        'POST /api/auth/google-login',
         'POST /api/auth/forgot-password',
         'POST /api/auth/verify-reset-token',
         'GET /api/auth/verify-reset-token/:token',
@@ -179,6 +216,228 @@ router.post('/register', registerValidation, asyncHandler(AuthController.registe
 
 // Admin login (credenciales especiales)
 router.post('/admin-login', adminLoginValidation, asyncHandler(AuthController.adminLogin));
+
+// ============================================================================
+// GOOGLE LOGIN - NUEVA FUNCIONALIDAD
+// ============================================================================
+router.post('/google-login', googleLoginValidation, async (req, res) => {
+  try {
+    const {
+      googleId,
+      email,
+      firstName,
+      lastName,
+      name,
+      picture,
+      verified_email,
+      googleAccessToken,
+      googleIdToken,
+      authProvider,
+      platform
+    } = req.body;
+
+    console.log('🔐 Google login attempt for:', email);
+
+    // ✅ 1. VALIDAR TOKEN DE GOOGLE
+    let googleUserInfo;
+    try {
+      // Verificar el ID token con Google
+      if (googleIdToken) {
+        const ticket = await googleClient.verifyIdToken({
+          idToken: googleIdToken,
+          audience: process.env.GOOGLE_CLIENT_ID,
+        });
+        googleUserInfo = ticket.getPayload();
+      } else {
+        // Verificar access token
+        const response = await fetch(`https://www.googleapis.com/oauth2/v1/userinfo?access_token=${googleAccessToken}`);
+        if (!response.ok) {
+          throw new Error('Token de Google inválido');
+        }
+        googleUserInfo = await response.json();
+      }
+
+      // Verificar que el email coincida
+      if (googleUserInfo.email !== email) {
+        throw new Error('Email no coincide con token de Google');
+      }
+
+    } catch (error) {
+      console.error('❌ Error validando token de Google:', error);
+      return res.status(401).json({
+        success: false,
+        error: {
+          message: 'Token de Google inválido',
+          code: 'INVALID_GOOGLE_TOKEN'
+        }
+      });
+    }
+
+    // ✅ 2. BUSCAR O CREAR USUARIO
+    let user;
+    
+    try {
+      // 2a. Buscar usuario existente por email
+      user = await prisma.user.findUnique({
+        where: { email: email.toLowerCase() },
+        include: {
+          clinic: true,
+        }
+      });
+
+      if (user) {
+        // Usuario existente - actualizar información de Google
+        user = await prisma.user.update({
+          where: { id: user.id },
+          data: {
+            googleId: googleId,
+            profilePicture: picture,
+            authProvider: 'google',
+            lastLogin: new Date(),
+            isEmailVerified: verified_email || true,
+            // Actualizar nombre si no tenía
+            firstName: user.firstName || firstName,
+            lastName: user.lastName || lastName,
+          },
+          include: {
+            clinic: true,
+          }
+        });
+
+        console.log('✅ Usuario existente actualizado:', user.email);
+
+      } else {
+        // 2b. Crear nuevo usuario
+        user = await prisma.user.create({
+          data: {
+            googleId: googleId,
+            email: email.toLowerCase(),
+            firstName: firstName || name?.split(' ')[0] || 'Usuario',
+            lastName: lastName || name?.split(' ').slice(1).join(' ') || 'Google',
+            profilePicture: picture,
+            authProvider: 'google',
+            isEmailVerified: verified_email || true,
+            registrationDate: new Date(),
+            lastLogin: new Date(),
+            // Campos requeridos
+            phone: null, // Se puede actualizar después
+            skinType: null,
+            role: 'user',
+            isActive: true,
+          },
+          include: {
+            clinic: true,
+          }
+        });
+
+        console.log('✅ Nuevo usuario creado:', user.email);
+
+        // Opcional: Crear perfil inicial
+        await prisma.userProfile.create({
+          data: {
+            userId: user.id,
+            beautyPoints: 0,
+            totalSessions: 0,
+            isVip: false,
+            preferences: {
+              notifications: true,
+              promotions: true,
+              reminders: true,
+            }
+          }
+        });
+      }
+
+    } catch (dbError) {
+      console.error('❌ Error en base de datos:', dbError);
+      return res.status(500).json({
+        success: false,
+        error: {
+          message: 'Error interno del servidor',
+          code: 'DATABASE_ERROR'
+        }
+      });
+    }
+
+    // ✅ 3. GENERAR TOKENS JWT
+    const tokenPayload = {
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+      authProvider: 'google',
+      isEmailVerified: user.isEmailVerified,
+    };
+
+    const accessToken = jwt.sign(
+      tokenPayload,
+      process.env.JWT_SECRET,
+      { 
+        expiresIn: '24h',
+        issuer: 'clinica-estetica',
+        audience: 'mobile-app'
+      }
+    );
+
+    const refreshToken = jwt.sign(
+      { userId: user.id, type: 'refresh' },
+      process.env.JWT_REFRESH_SECRET,
+      { 
+        expiresIn: '30d',
+        issuer: 'clinica-estetica'
+      }
+    );
+
+    // ✅ 4. PREPARAR RESPUESTA
+    const responseData = {
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        name: `${user.firstName} ${user.lastName}`,
+        profilePicture: user.profilePicture,
+        phone: user.phone,
+        role: user.role,
+        isEmailVerified: user.isEmailVerified,
+        authProvider: user.authProvider,
+        registrationDate: user.registrationDate,
+        lastLogin: user.lastLogin,
+        clinic: user.clinic ? {
+          id: user.clinic.id,
+          name: user.clinic.name,
+        } : null,
+      },
+      tokens: {
+        accessToken,
+        refreshToken,
+        tokenType: 'Bearer',
+        expiresIn: '24h',
+      },
+      authProvider: 'google',
+    };
+
+    // ✅ 5. LOG DE ÉXITO Y RESPUESTA
+    console.log(`✅ Google login successful for user: ${user.email} (ID: ${user.id})`);
+
+    res.status(200).json({
+      success: true,
+      data: responseData,
+      message: 'Autenticación con Google exitosa'
+    });
+
+  } catch (error) {
+    console.error('❌ Error general en Google login:', error);
+    
+    res.status(500).json({
+      success: false,
+      error: {
+        message: 'Error interno del servidor',
+        code: 'INTERNAL_SERVER_ERROR',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      }
+    });
+  }
+});
 
 // ========================================================================
 // RECUPERACIÓN DE CONTRASEÑA
