@@ -1,5 +1,5 @@
 // ============================================================================
-// server.js - SERVIDOR MEJORADO CON SOPORTE POSTGRESQL Y SQLITE
+// server.js - SERVIDOR PARA PRODUCCIÓN EN RENDER
 // ============================================================================
 const app = require('./app');
 const { PrismaClient } = require('@prisma/client');
@@ -49,12 +49,7 @@ const initDatabase = async () => {
     
     // Inicializar Prisma Client
     prisma = new PrismaClient({
-      log: ['error', 'warn'],
-      datasources: {
-        db: {
-          url: dbUrl
-        }
-      }
+      log: process.env.NODE_ENV === 'production' ? ['error'] : ['error', 'warn'],
     });
     
     // Probar conexión
@@ -66,30 +61,25 @@ const initDatabase = async () => {
   } catch (error) {
     console.error('❌ Error inicializando base de datos:', error.message);
     
-    // Intentos de recuperación para errores comunes
-    if (error.message.includes('protocol')) {
-      console.log('🔧 Intentando corregir URL de base de datos...');
-      const currentUrl = process.env.DATABASE_URL;
-      if (currentUrl.includes('postgresql://') || currentUrl.includes('postgres://')) {
-        // Para PostgreSQL, no agregar prefijo file:
-        process.env.DATABASE_URL = currentUrl.replace('file:', '');
-      } else {
-        // Para SQLite, asegurar prefijo file:
-        process.env.DATABASE_URL = `file:${currentUrl.replace('file:', '')}`;
-      }
-      return initDatabase();
-    }
-    
+    // Solo manejar errores de permisos para SQLite
     if (error.message.includes('permission') || error.message.includes('EACCES')) {
       console.log('🔧 Error de permisos detectado, verificando directorio...');
-      const dbPath = path.dirname(process.env.DATABASE_URL.replace('file:', ''));
       try {
+        const dbPath = path.dirname(process.env.DATABASE_URL.replace('file:', ''));
         fs.chmodSync(dbPath, 0o755);
         console.log('✅ Permisos de directorio corregidos');
         return initDatabase();
       } catch (chmodError) {
         console.log('⚠️ No se pudieron corregir permisos:', chmodError.message);
       }
+    }
+    
+    // Para errores de conexión a PostgreSQL, dar consejos útiles
+    if (error.code === 'P1001') {
+      console.log('\n💡 Error de conexión a PostgreSQL:');
+      console.log('1. Verifica que la base de datos esté activa en Render');
+      console.log('2. Revisa que DATABASE_URL sea correcta');
+      console.log('3. Asegúrate de que la DB esté en la misma región');
     }
     
     throw error;
@@ -106,7 +96,7 @@ const startServer = async () => {
     await initDatabase();
     console.log('✅ Base de datos inicializada correctamente');
 
-    // Usar el puerto proporcionado por la plataforma o 3000 por defecto
+    // Usar el puerto proporcionado por Render
     const PORT = process.env.PORT || 3000;
     
     // Determinar tipo de base de datos para logging
@@ -118,20 +108,19 @@ const startServer = async () => {
       console.log('   🚀 SERVIDOR INICIADO EXITOSAMENTE');
       console.log('🎉 ================================');
       console.log(`📡 Puerto: ${PORT}`);
-      console.log(`🌐 URL Local: http://localhost:${PORT}`);
-      console.log(`💚 Health Check: http://localhost:${PORT}/health`);
       console.log(`🔧 Entorno: ${process.env.NODE_ENV || 'development'}`);
       console.log(`🗄️ Base de datos: ${dbType}`);
       console.log(`⏰ Hora de inicio: ${new Date().toLocaleString()}`);
       console.log('================================\n');
       
-      console.log('📋 Endpoints de prueba:');
-      console.log(`  GET  http://localhost:${PORT}/`);
-      console.log(`  GET  http://localhost:${PORT}/health`);
-      console.log(`  GET  http://localhost:${PORT}/api`);
-      console.log(`  POST http://localhost:${PORT}/api/auth/demo-login`);
-      console.log(`  GET  http://localhost:${PORT}/api/dashboard`);
-      console.log('\n✨ Listo para recibir requests!\n');
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('📋 Endpoints disponibles:');
+        console.log(`  GET  /health`);
+        console.log(`  GET  /api`);
+        console.log(`  POST /api/auth/demo-login`);
+        console.log(`  GET  /api/dashboard`);
+        console.log('\n✨ Listo para recibir requests!\n');
+      }
     });
 
     // Manejo de errores del servidor
@@ -189,20 +178,16 @@ const startServer = async () => {
     console.error('❌ Error iniciando servidor:', error);
     
     if (error.code === 'P1012') {
-      console.log('\n💡 Consejos para solucionar problemas de base de datos:');
-      console.log('1. Verifica que DATABASE_URL tenga el formato correcto');
-      console.log('2. Para SQLite: file:./dev.db');
-      console.log('3. Para PostgreSQL: postgresql://user:pass@host:port/db');
-      console.log('4. Ejecuta: npx prisma migrate dev');
-      console.log('5. Verifica que no haya otros procesos usando la base de datos');
+      console.log('\n💡 Problema con el schema de la base de datos');
+      console.log('1. Ejecuta: npx prisma db push');
+      console.log('2. Verifica que el schema.prisma sea válido');
     }
     
     if (error.code === 'P1001') {
-      console.log('\n💡 Consejos para solucionar problemas de conexión:');
-      console.log('1. Verifica que la ruta de la base de datos sea accesible');
-      console.log('2. Revisa permisos del directorio (SQLite)');
-      console.log('3. Verifica credenciales de conexión (PostgreSQL)');
-      console.log('4. Asegúrate de que el servidor esté disponible');
+      console.log('\n💡 No se puede conectar a la base de datos');
+      console.log('1. Verifica que DATABASE_URL sea correcta');
+      console.log('2. Asegúrate de que la DB esté activa');
+      console.log('3. Revisa la configuración de red');
     }
     
     process.exit(1);
@@ -211,23 +196,24 @@ const startServer = async () => {
 
 // Verificar variables de entorno críticas
 const checkEnvironment = () => {
-  // DATABASE_URL es opcional (usaremos valor por defecto para SQLite)
-  const recommended = ['DATABASE_URL'];
-  const missing = recommended.filter(key => !process.env[key]);
-  
-  if (missing.length > 0) {
-    console.warn('⚠️  Variables recomendadas no configuradas:');
-    missing.forEach(key => console.warn(`   - ${key} (se usará valor por defecto)`));
-    console.log('');
+  if (process.env.NODE_ENV === 'production') {
+    const required = ['DATABASE_URL'];
+    const missing = required.filter(key => !process.env[key]);
+    
+    if (missing.length > 0) {
+      console.error('❌ Variables de entorno faltantes para producción:');
+      missing.forEach(key => console.error(`   - ${key}`));
+      process.exit(1);
+    }
   }
 
-  // Advertir sobre variables opcionales pero recomendadas
-  const optional = ['JWT_SECRET', 'NODE_ENV'];
-  const missingOptional = optional.filter(key => !process.env[key]);
+  // Variables recomendadas
+  const recommended = ['JWT_SECRET', 'NODE_ENV'];
+  const missingRecommended = recommended.filter(key => !process.env[key]);
   
-  if (missingOptional.length > 0) {
-    console.warn('⚠️  Variables opcionales no configuradas:');
-    missingOptional.forEach(key => console.warn(`   - ${key}`));
+  if (missingRecommended.length > 0) {
+    console.warn('⚠️  Variables recomendadas no configuradas:');
+    missingRecommended.forEach(key => console.warn(`   - ${key}`));
     console.log('');
   }
 };
@@ -238,44 +224,29 @@ checkEnvironment();
 startServer();
 
 // ============================================================================
-// COMANDOS ÚTILES DE DEPURACIÓN
+// COMANDOS ÚTILES DE DEPURACIÓN PARA RENDER
 // ============================================================================
 /*
-Si tienes problemas, prueba estos comandos:
+Si tienes problemas en Render:
 
-# Ver qué está usando el puerto 3000
-lsof -i :3000
+# Logs en tiempo real
+render logs --service=tu-servicio
 
-# Matar proceso específico por PID
-kill [PID]
+# Variables de entorno
+render env --service=tu-servicio
 
-# Matar todos los procesos Node.js
-pkill -f node
+# Redeploy manual
+render deploy --service=tu-servicio
 
-# Verificar procesos corriendo
-ps aux | grep node
+# Para desarrollo local:
+npm run dev
+PORT=3001 npm start
 
-# Ejecutar en puerto diferente
-PORT=3001 npm run dev
-
-# Verificar base de datos
+# Verificar base de datos PostgreSQL
 npx prisma studio
-
-# Verificar migraciones
-npx prisma migrate status
-
-# Para SQLite - Resetear base de datos
-npx prisma migrate reset
-
-# Para PostgreSQL - Aplicar schema
 npx prisma db push
 
-# Verificar permisos del directorio (SQLite)
-ls -la ./data/
-
-# Verificar archivo de base de datos (SQLite)
-file ./dev.db
-
-# Verificar contenido de la base de datos (SQLite)
-sqlite3 ./dev.db ".tables"
+# Verificar schema
+npx prisma validate
+npx prisma generate
 */
