@@ -24,7 +24,8 @@ const initDatabase = async () => {
     // Determinar tipo de base de datos y configurar URL
     if (dbUrl.startsWith('postgresql://') || dbUrl.startsWith('postgres://')) {
       console.log('🔄 Usando PostgreSQL...');
-      // No modificar dbUrl para PostgreSQL
+      // Para PostgreSQL, mantener la URL original sin modificaciones
+      console.log('🔍 Usando DATABASE_URL:', dbUrl);
     } else {
       console.log('🔄 Usando SQLite...');
       
@@ -40,16 +41,20 @@ const initDatabase = async () => {
         dbUrl = `file:${dbUrl}`;
         console.log('🔧 Corrigiendo formato para SQLite');
       }
+      
+      // Solo actualizar variable de entorno para SQLite
+      process.env.DATABASE_URL = dbUrl;
+      console.log('🔍 Usando DATABASE_URL:', dbUrl);
     }
-    
-    // Actualizar variable de entorno
-    process.env.DATABASE_URL = dbUrl;
-    
-    console.log('🔍 Usando DATABASE_URL:', dbUrl);
     
     // Inicializar Prisma Client
     prisma = new PrismaClient({
       log: process.env.NODE_ENV === 'production' ? ['error'] : ['error', 'warn'],
+      datasources: {
+        db: {
+          url: process.env.DATABASE_URL
+        }
+      }
     });
     
     // Probar conexión
@@ -66,9 +71,11 @@ const initDatabase = async () => {
       console.log('🔧 Error de permisos detectado, verificando directorio...');
       try {
         const dbPath = path.dirname(process.env.DATABASE_URL.replace('file:', ''));
-        fs.chmodSync(dbPath, 0o755);
-        console.log('✅ Permisos de directorio corregidos');
-        return initDatabase();
+        if (fs.existsSync(dbPath)) {
+          fs.chmodSync(dbPath, 0o755);
+          console.log('✅ Permisos de directorio corregidos');
+          return initDatabase();
+        }
       } catch (chmodError) {
         console.log('⚠️ No se pudieron corregir permisos:', chmodError.message);
       }
@@ -80,6 +87,15 @@ const initDatabase = async () => {
       console.log('1. Verifica que la base de datos esté activa en Render');
       console.log('2. Revisa que DATABASE_URL sea correcta');
       console.log('3. Asegúrate de que la DB esté en la misma región');
+      console.log('4. Confirma que el puerto 5432 esté en la URL');
+    }
+    
+    // Para errores de validación de schema
+    if (error.code === 'P1012') {
+      console.log('\n💡 Error de validación de schema:');
+      console.log('1. Verifica que DATABASE_URL tenga el formato correcto');
+      console.log('2. Para PostgreSQL: postgresql://user:pass@host:port/db');
+      console.log('3. Para SQLite: file:./database.db');
     }
     
     throw error;
