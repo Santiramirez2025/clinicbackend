@@ -1,19 +1,23 @@
+// ============================================================================
+// schema.prisma - CORREGIDO PARA RENDER 🚀
+// ============================================================================
+
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"  // ✅ Cambiado de sqlite a postgresql
+  provider = "postgresql"  // ✅ CORREGIDO: era sqlite
   url      = env("DATABASE_URL")
 }
 
 // ============================================================================
-// MODELO USER - ACTUALIZADO CON STRIPE Y NOTIFICACIONES ✅
+// MODELO USER - CORREGIDO PARA TU CÓDIGO EXISTENTE ✅
 // ============================================================================
 model User {
   id                      String   @id @default(cuid())
   email                   String   @unique
-  passwordHash            String   @map("password_hash")
+  password                String   // ✅ CORREGIDO: era passwordHash
   firstName               String   @map("first_name")
   lastName                String   @map("last_name")
   phone                   String?
@@ -25,32 +29,32 @@ model User {
   sessionsCompleted       Int      @default(0) @map("sessions_completed")
   vipStatus               Boolean  @default(false) @map("vip_status")
   preferredNotifications  String?  @map("preferred_notifications")
+  
+  // ✅ CAMPOS ADICIONALES PARA COMPATIBILIDAD
+  role                    String   @default("user")
+  isActive                Boolean  @default(true) @map("is_active")
+  isAdmin                 Boolean  @default(false) @map("is_admin")
+  
   createdAt               DateTime @default(now()) @map("created_at")
   updatedAt               DateTime @updatedAt @map("updated_at")
   
-  // ✅ NUEVOS CAMPOS PARA NOTIFICACIONES PUSH
+  // ✅ CAMPOS PARA NOTIFICACIONES PUSH
   pushToken               String?   @map("push_token")
   devicePlatform          String?   @map("device_platform")
   deviceInfo              String?   @map("device_info") // JSON
   pushSettings            String?   @map("push_settings") // JSON
   lastNotificationSent    DateTime? @map("last_notification_sent")
   
-  // Relaciones existentes
+  // Relaciones
   appointments            Appointment[]
   vipSubscriptions        VipSubscription[]
   invitations             Invitation[]
   passwordResetTokens     PasswordResetToken[]
   rewardRedemptions       RewardRedemption[]
-  
-  // ✨ NUEVAS RELACIONES STRIPE
   stripeCustomer          StripeCustomer?
   paymentMethods          PaymentMethod[]
   payments                Payment[]
-  
-  // ✅ NUEVA RELACIÓN NOTIFICACIONES
   notificationLogs        NotificationLog[]
-  
-  // ✅ NUEVA RELACIÓN OFERTAS
   offerRedemptions        OfferRedemption[]
   
   @@map("users")
@@ -73,7 +77,7 @@ model Clinic {
   id                    String   @id @default(cuid())
   name                  String
   email                 String   @unique
-  passwordHash          String   @map("password_hash")
+  password              String   // ✅ CORREGIDO: era passwordHash
   phone                 String
   address               String
   logoUrl               String?  @map("logo_url")
@@ -158,9 +162,6 @@ model Appointment {
   @@map("appointments")
 }
 
-// ============================================================================
-// ✨ MODELO VIP SUBSCRIPTION - ACTUALIZADO PARA STRIPE
-// ============================================================================
 model VipSubscription {
   id                   String   @id @default(cuid())
   userId               String   @map("user_id")
@@ -213,10 +214,6 @@ model WellnessTip {
   
   @@map("wellness_tips")
 }
-
-// ============================================================================
-// ✨ NUEVOS MODELOS DE OFERTAS PARA CLÍNICAS ✅
-// ============================================================================
 
 model Offer {
   id              String   @id @default(cuid())
@@ -293,10 +290,6 @@ model OfferRedemption {
   @@index([expiresAt], map: "idx_offer_expiry")
   @@map("offer_redemptions")
 }
-
-// ============================================================================
-// ✨ NUEVOS MODELOS STRIPE PARA PAGOS VIP
-// ============================================================================
 
 model StripeCustomer {
   id               String   @id @default(cuid())
@@ -375,9 +368,6 @@ model WebhookEvent {
   @@map("webhook_events")
 }
 
-// ============================================================================
-// ✅ NUEVO MODELO PARA TRACKING DE NOTIFICACIONES
-// ============================================================================
 model NotificationLog {
   id          String   @id @default(cuid())
   userId      String   @map("user_id")
@@ -401,10 +391,6 @@ model NotificationLog {
   @@index([delivered, opened], map: "idx_notification_status")
   @@map("notification_logs")
 }
-
-// ============================================================================
-// ✨ MODELOS EXISTENTES PARA SISTEMA DE RECOMPENSAS INTELIGENTE
-// ============================================================================
 
 model RewardTemplate {
   id               String   @id @default(cuid())
