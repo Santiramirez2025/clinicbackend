@@ -5,8 +5,76 @@ const app = require('./app');
 const { PrismaClient } = require('@prisma/client');
 const fs = require('fs');
 const path = require('path');
+const { exec } = require('child_process');
+const util = require('util');
+
+// Promisificar exec para usar async/await
+const execAsync = util.promisify(exec);
 
 let prisma;
+
+// Función para ejecutar migraciones automáticamente
+const runMigrations = async () => {
+  try {
+    console.log('🔄 Ejecutando migraciones de base de datos...');
+    
+    if (process.env.DATABASE_URL?.startsWith('postgresql')) {
+      console.log('📊 Ejecutando migraciones de PostgreSQL...');
+      
+      // Intentar primero migrate deploy (para producción)
+      try {
+        const { stdout, stderr } = await execAsync('npx prisma migrate deploy');
+        console.log('✅ Migraciones ejecutadas correctamente');
+        if (stdout) console.log('📋 Output:', stdout);
+        if (stderr) console.log('⚠️ Warnings:', stderr);
+      } catch (deployError) {
+        console.log('⚠️ migrate deploy falló, intentando db push...');
+        console.log('🔍 Error:', deployError.message);
+        
+        // Si migrate deploy falla, usar db push como respaldo
+        const { stdout: pushStdout, stderr: pushStderr } = await execAsync('npx prisma db push --accept-data-loss');
+        console.log('✅ Schema sincronizado con db push');
+        if (pushStdout) console.log('📋 Output:', pushStdout);
+        if (pushStderr) console.log('⚠️ Warnings:', pushStderr);
+      }
+    } else {
+      console.log('📊 Ejecutando migraciones de SQLite...');
+      
+      // Para SQLite, usar db push es más confiable
+      const { stdout, stderr } = await execAsync('npx prisma db push');
+      console.log('✅ Schema de SQLite sincronizado');
+      if (stdout) console.log('📋 Output:', stdout);
+      if (stderr) console.log('⚠️ Warnings:', stderr);
+    }
+    
+    // Generar cliente Prisma después de migraciones
+    console.log('🔄 Generando cliente Prisma...');
+    const { stdout: genStdout } = await execAsync('npx prisma generate');
+    console.log('✅ Cliente Prisma generado');
+    if (genStdout) console.log('📋 Generated:', genStdout);
+    
+  } catch (error) {
+    console.error('❌ Error ejecutando migraciones:', error.message);
+    
+    // Información adicional de debugging
+    if (error.code) console.log('🔍 Código de error:', error.code);
+    if (error.stdout) console.log('📤 Stdout:', error.stdout);
+    if (error.stderr) console.log('📥 Stderr:', error.stderr);
+    
+    // Dar consejos específicos según el error
+    if (error.message.includes('Environment variable not found: DATABASE_URL')) {
+      console.log('💡 Asegúrate de que DATABASE_URL esté configurada');
+    }
+    
+    if (error.message.includes('Migration engine error')) {
+      console.log('💡 Problema con el motor de migraciones');
+      console.log('   - Verifica que la base de datos esté accesible');
+      console.log('   - Revisa los permisos de la base de datos');
+    }
+    
+    throw error;
+  }
+};
 
 // Función para inicializar la base de datos
 const initDatabase = async () => {
@@ -25,7 +93,7 @@ const initDatabase = async () => {
     if (dbUrl.startsWith('postgresql://') || dbUrl.startsWith('postgres://')) {
       console.log('🔄 Usando PostgreSQL...');
       // Para PostgreSQL, mantener la URL original sin modificaciones
-      console.log('🔍 Usando DATABASE_URL:', dbUrl);
+      console.log('🔍 Usando DATABASE_URL:', dbUrl.substring(0, 30) + '...');
     } else {
       console.log('🔄 Usando SQLite...');
       
@@ -47,6 +115,9 @@ const initDatabase = async () => {
       console.log('🔍 Usando DATABASE_URL:', dbUrl);
     }
     
+    // Ejecutar migraciones ANTES de inicializar Prisma Client
+    await runMigrations();
+    
     // Inicializar Prisma Client
     prisma = new PrismaClient({
       log: process.env.NODE_ENV === 'production' ? ['error'] : ['error', 'warn'],
@@ -60,6 +131,16 @@ const initDatabase = async () => {
     // Probar conexión
     await prisma.$connect();
     console.log('✅ Conectado a la base de datos exitosamente');
+    
+    // Verificar que las tablas existan haciendo una consulta simple
+    try {
+      // Intentar contar usuarios (ajusta según tu schema)
+      const userCount = await prisma.user?.count() || 0;
+      console.log(`👥 Usuarios en la base de datos: ${userCount}`);
+    } catch (queryError) {
+      console.log('⚠️ No se pudo consultar la tabla de usuarios:', queryError.message);
+      console.log('💡 Esto puede ser normal si es la primera vez que se ejecuta');
+    }
     
     return prisma;
     
@@ -107,7 +188,7 @@ const startServer = async () => {
   try {
     console.log('🚀 Iniciando servidor...\n');
 
-    // Inicializar base de datos
+    // Inicializar base de datos (incluye migraciones automáticas)
     console.log('🔍 Verificando conexión a base de datos...');
     await initDatabase();
     console.log('✅ Base de datos inicializada correctamente');
@@ -206,6 +287,13 @@ const startServer = async () => {
       console.log('3. Revisa la configuración de red');
     }
     
+    if (error.message.includes('Migration')) {
+      console.log('\n💡 Error en migraciones automáticas');
+      console.log('1. Verifica que el schema.prisma sea válido');
+      console.log('2. Revisa los logs de las migraciones arriba');
+      console.log('3. Considera ejecutar manualmente: npx prisma db push');
+    }
+    
     process.exit(1);
   }
 };
@@ -238,31 +326,3 @@ const checkEnvironment = () => {
 console.log('🏥 Clinic Backend SaaS - Iniciando...');
 checkEnvironment();
 startServer();
-
-// ============================================================================
-// COMANDOS ÚTILES DE DEPURACIÓN PARA RENDER
-// ============================================================================
-/*
-Si tienes problemas en Render:
-
-# Logs en tiempo real
-render logs --service=tu-servicio
-
-# Variables de entorno
-render env --service=tu-servicio
-
-# Redeploy manual
-render deploy --service=tu-servicio
-
-# Para desarrollo local:
-npm run dev
-PORT=3001 npm start
-
-# Verificar base de datos PostgreSQL
-npx prisma studio
-npx prisma db push
-
-# Verificar schema
-npx prisma validate
-npx prisma generate
-*/
