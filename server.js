@@ -31,9 +31,9 @@ const runMigrations = async () => {
         console.log('⚠️ migrate deploy falló, intentando db push...');
         console.log('🔍 Error:', deployError.message);
         
-        // Si migrate deploy falla, usar db push como respaldo
-        const { stdout: pushStdout, stderr: pushStderr } = await execAsync('npx prisma db push --accept-data-loss');
-        console.log('✅ Schema sincronizado con db push');
+        // Si migrate deploy falla, usar db push como respaldo (FUERZA LA CREACIÓN DE TABLAS)
+        const { stdout: pushStdout, stderr: pushStderr } = await execAsync('npx prisma db push --force-reset --accept-data-loss');
+        console.log('✅ Schema sincronizado con db push (forzado)');
         if (pushStdout) console.log('📋 Output:', pushStdout);
         if (pushStderr) console.log('⚠️ Warnings:', pushStderr);
       }
@@ -326,3 +326,35 @@ const checkEnvironment = () => {
 console.log('🏥 Clinic Backend SaaS - Iniciando...');
 checkEnvironment();
 startServer();
+
+// ============================================================================
+// COMANDOS ÚTILES DE DEPURACIÓN PARA RENDER
+// ============================================================================
+/*
+Si tienes problemas en Render:
+
+# Logs en tiempo real
+render logs --service=tu-servicio
+
+# Variables de entorno
+render env --service=tu-servicio
+
+# Redeploy manual
+render deploy --service=tu-servicio
+
+# Para desarrollo local:
+npm run dev
+PORT=3001 npm start
+
+# Verificar base de datos PostgreSQL
+npx prisma studio
+npx prisma db push
+
+# Verificar schema
+npx prisma validate
+npx prisma generate
+
+# Migraciones manuales (si es necesario)
+npx prisma migrate deploy
+npx prisma db push --accept-data-loss
+*/
