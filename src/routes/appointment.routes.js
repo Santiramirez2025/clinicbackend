@@ -1,5 +1,5 @@
 // ============================================================================
-// src/routes/appointment.routes.js - CORREGIDO PARA COINCIDIR CON FRONTEND ✅
+// src/routes/appointment.routes.js - COMPLETO PARA PRODUCCIÓN ✅
 // ============================================================================
 const express = require('express');
 const { PrismaClient } = require('@prisma/client');
@@ -75,7 +75,7 @@ const authenticateToken = async (req, res, next) => {
 // GET /api/appointments/treatments
 router.get('/treatments', asyncHandler(AppointmentController.getTreatments));
 
-// ✅ CORREGIDO: GET /api/appointments/availability/:treatmentId/:date
+// GET /api/appointments/availability/:treatmentId/:date
 router.get('/availability/:treatmentId/:date', asyncHandler(async (req, res) => {
   try {
     const { treatmentId, date } = req.params;
@@ -122,7 +122,7 @@ router.get('/availability/:treatmentId/:date', asyncHandler(async (req, res) => 
           success: false,
           error: { 
             message: `Tratamiento ${treatmentId} no encontrado`,
-            availableTreatments: ['t1', 't2', 't3']
+            availableTreatments: Object.keys(mockTreatments)
           }
         });
       }
@@ -203,7 +203,7 @@ router.get('/availability/:treatmentId/:date', asyncHandler(async (req, res) => 
   }
 }));
 
-// ✅ MANTENER RUTA LEGACY PARA COMPATIBILIDAD
+// GET /api/appointments/availability (Legacy route)
 router.get('/availability', asyncHandler(AppointmentController.getAvailability));
 
 // ============================================================================
@@ -213,7 +213,19 @@ router.get('/availability', asyncHandler(AppointmentController.getAvailability))
 // Aplicar autenticación a todas las rutas siguientes
 router.use(verifyToken);
 
-// GET /api/appointments - Obtener mis citas
+// 🔥 RUTA CRÍTICA 1: GET /api/appointments/dashboard
+router.get('/dashboard', asyncHandler(AppointmentController.getDashboardData));
+
+// 🔥 RUTA CRÍTICA 2: GET /api/appointments/user
+router.get('/user', asyncHandler(AppointmentController.getUserAppointments));
+
+// 🔧 RUTA ADICIONAL: GET /api/appointments/next (próxima cita)
+router.get('/next', asyncHandler(AppointmentController.getNextAppointment));
+
+// 🔧 RUTA ADICIONAL: GET /api/appointments/stats (estadísticas)
+router.get('/stats', asyncHandler(AppointmentController.getAppointmentStats));
+
+// GET /api/appointments - Obtener mis citas (ruta legacy, ahora apunta a /user)
 router.get('/', asyncHandler(AppointmentController.getUserAppointments));
 
 // GET /api/appointments/:id - Detalles de cita específica
@@ -229,25 +241,51 @@ router.get('/:id', asyncHandler(async (req, res) => {
       const demoAppointments = {
         'cmcvq0ez600010jrfzqmynsy2': {
           id: 'cmcvq0ez600010jrfzqmynsy2',
+          date: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
           treatment: { 
-            name: 'Drenaje Relajante', 
-            duration: 90, 
-            price: 3500,
-            description: 'Masaje de drenaje linfático corporal',
-            iconName: 'waves'
+            name: 'Masaje Relajante', 
+            duration: 60, 
+            price: 3000,
+            description: 'Masaje corporal completo para relajación',
+            iconName: 'leaf'
           },
-          date: '2025-07-15',
-          time: '14:30',
-          professional: 'Carmen Rodríguez',
-          clinic: 'Belleza Estética Premium',
-          status: 'CONFIRMED',
-          beautyPointsEarned: 70,
-          notes: 'Solicita música relajante',
+          status: 'confirmed',
+          professional: {
+            name: 'María González'
+          },
+          location: {
+            name: 'Belleza Estética Premium',
+            address: 'Calle Principal 123'
+          },
+          notes: 'Sesión de relajación completa',
+          beautyPointsEarned: 60,
+          createdAt: new Date().toISOString()
+        },
+        'apt-demo-next': {
+          id: 'apt-demo-next',
+          date: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+          treatment: { 
+            name: 'Masaje Relajante', 
+            duration: 60, 
+            price: 3000,
+            description: 'Masaje corporal completo para relajación',
+            iconName: 'leaf'
+          },
+          status: 'confirmed',
+          professional: {
+            name: 'María González'
+          },
+          location: {
+            name: 'Belleza Estética Premium',
+            address: 'Calle Principal 123'
+          },
+          notes: 'Sesión de relajación completa',
+          beautyPointsEarned: 60,
           createdAt: new Date().toISOString()
         }
       };
 
-      const demoAppointment = demoAppointments[id];
+      const demoAppointment = demoAppointments[id] || demoAppointments['apt-demo-next'];
       
       if (!demoAppointment) {
         return res.status(404).json({
@@ -289,6 +327,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
       data: {
         appointment: {
           id: appointment.id,
+          date: appointment.scheduledDate.toISOString(),
           treatment: {
             name: appointment.treatment.name,
             duration: appointment.treatment.durationMinutes,
@@ -296,13 +335,16 @@ router.get('/:id', asyncHandler(async (req, res) => {
             description: appointment.treatment.description,
             iconName: appointment.treatment.iconName
           },
-          date: appointment.scheduledDate.toISOString().split('T')[0],
-          time: appointment.scheduledTime.toTimeString().slice(0, 5),
-          professional: `${appointment.professional.firstName} ${appointment.professional.lastName}`,
-          clinic: appointment.clinic.name,
-          status: appointment.status,
-          beautyPointsEarned: appointment.beautyPointsEarned,
+          status: appointment.status.toLowerCase(),
+          professional: {
+            name: `${appointment.professional.firstName} ${appointment.professional.lastName}`
+          },
+          location: {
+            name: appointment.clinic.name,
+            address: appointment.clinic.address || 'Dirección no disponible'
+          },
           notes: appointment.notes,
+          beautyPointsEarned: appointment.beautyPointsEarned,
           createdAt: appointment.createdAt.toISOString()
         }
       }
@@ -323,7 +365,7 @@ router.post('/', asyncHandler(AppointmentController.createAppointment));
 // PUT /api/appointments/:id - Actualizar cita
 router.put('/:id', asyncHandler(AppointmentController.updateAppointment));
 
-// ✅ NUEVA RUTA: PATCH /api/appointments/:id/cancel - Cancelar cita
+// PATCH /api/appointments/:id/cancel - Cancelar cita
 router.patch('/:id/cancel', asyncHandler(async (req, res) => {
   try {
     const { id } = req.params;
@@ -385,7 +427,7 @@ router.patch('/:id/cancel', asyncHandler(async (req, res) => {
   }
 }));
 
-// ✅ NUEVA RUTA: PATCH /api/appointments/:id/reschedule - Reagendar cita
+// PATCH /api/appointments/:id/reschedule - Reagendar cita
 router.patch('/:id/reschedule', asyncHandler(async (req, res) => {
   try {
     const { id } = req.params;
@@ -474,26 +516,25 @@ router.get('/:id/details', asyncHandler(async (req, res) => {
         data: {
           appointment: {
             id: id,
+            date: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
             treatment: { 
-              name: 'Drenaje Relajante', 
-              duration: 90, 
-              price: 3500,
-              description: 'Masaje especializado de drenaje linfático para mejorar la circulación'
+              name: 'Masaje Relajante', 
+              duration: 60, 
+              price: 3000,
+              description: 'Masaje corporal completo para relajación profunda y bienestar'
             },
-            date: '2025-07-15',
-            time: '14:30',
+            status: 'confirmed',
             professional: {
-              name: 'Carmen Rodríguez',
+              name: 'María González',
               specialty: 'Masajes terapéuticos',
-              rating: 4.8
+              rating: 4.9
             },
-            clinic: {
+            location: {
               name: 'Belleza Estética Premium',
-              address: 'Av. Corrientes 1234, CABA',
-              phone: '+54 11 1234-5678'
+              address: 'Calle Principal 123, Ciudad',
+              phone: '+34 123 456 789'
             },
-            status: 'CONFIRMED',
-            notes: 'Solicita música relajante',
+            notes: 'Sesión de relajación completa',
             instructions: 'Llegar 10 minutos antes. Evitar comidas pesadas 2 horas antes.',
             cancellationPolicy: 'Cancelación gratuita hasta 24hs antes'
           }
@@ -523,25 +564,24 @@ router.get('/:id/details', asyncHandler(async (req, res) => {
       data: {
         appointment: {
           id: appointment.id,
+          date: appointment.scheduledDate.toISOString(),
           treatment: {
             name: appointment.treatment.name,
             duration: appointment.treatment.durationMinutes,
             price: appointment.treatment.price,
             description: appointment.treatment.description
           },
-          date: appointment.scheduledDate.toISOString().split('T')[0],
-          time: appointment.scheduledTime.toTimeString().slice(0, 5),
+          status: appointment.status.toLowerCase(),
           professional: {
             name: `${appointment.professional.firstName} ${appointment.professional.lastName}`,
             specialty: appointment.professional.specialties || 'Especialista',
             rating: appointment.professional.rating || 4.5
           },
-          clinic: {
+          location: {
             name: appointment.clinic.name,
             address: appointment.clinic.address || 'Dirección no disponible',
             phone: appointment.clinic.phone || 'Teléfono no disponible'
           },
-          status: appointment.status,
           notes: appointment.notes,
           instructions: 'Llegar 10 minutos antes de la hora programada.',
           cancellationPolicy: 'Cancelación gratuita hasta 24 horas antes.'
@@ -573,7 +613,7 @@ router.put('/:id/confirm', asyncHandler(async (req, res) => {
         data: { 
           appointmentId: id, 
           status: 'COMPLETED',
-          beautyPointsEarned: 70
+          beautyPointsEarned: 60
         }
       });
     }
@@ -635,11 +675,16 @@ router.get('/health', (req, res) => {
     success: true,
     message: 'Appointment routes working correctly',
     timestamp: new Date().toISOString(),
+    version: '2.0.0',
     availableEndpoints: [
       'GET /treatments (public)',
       'GET /availability/:treatmentId/:date (public)',
       'GET /availability (public legacy)',
-      'GET / (user appointments)',
+      'GET /dashboard (dashboard data)', // ✅ NUEVA
+      'GET /user (user appointments)', // ✅ NUEVA
+      'GET /next (next appointment)', // ✅ NUEVA
+      'GET /stats (appointment stats)', // ✅ NUEVA
+      'GET / (user appointments legacy)',
       'GET /:id (appointment details)',
       'POST / (create appointment)',
       'PUT /:id (update appointment)',
@@ -648,6 +693,11 @@ router.get('/health', (req, res) => {
       'DELETE /:id (cancel appointment legacy)',
       'GET /:id/details (extended details)',
       'PUT /:id/confirm (confirm attendance)'
+    ],
+    criticalEndpoints: [
+      'GET /dashboard - Para NextAppointmentCard',
+      'GET /user - Para lista de citas del usuario',
+      'POST / - Para crear nuevas citas'
     ]
   });
 });
