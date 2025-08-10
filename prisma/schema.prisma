@@ -11,51 +11,51 @@ datasource db {
 // 🏥 MODELO CLÍNICA - BASE DEL SISTEMA
 // ============================================================================
 model Clinic {
-  id                    String   @id @default(cuid())
-  name                  String
-  slug                  String   @unique // URL amigable: "clinica-madrid-centro"
-  email                 String   @unique
-  passwordHash          String   @map("password_hash")
-  phone                 String
-  address               String
-  city                  String
-  country               String   @default("ES")
-  timezone              String   @default("Europe/Madrid")
-  logoUrl               String?  @map("logo_url")
-  websiteUrl            String?  @map("website_url")
-  brandColors           String?  @map("brand_colors") // JSON
-  
+  id           String  @id @default(cuid())
+  name         String
+  slug         String  @unique // URL amigable: "clinica-madrid-centro"
+  email        String  @unique
+  passwordHash String  @map("password_hash")
+  phone        String
+  address      String
+  city         String
+  country      String  @default("ES")
+  timezone     String  @default("Europe/Madrid")
+  logoUrl      String? @map("logo_url")
+  websiteUrl   String? @map("website_url")
+  brandColors  String? @map("brand_colors") // JSON
+
   // Configuración de negocio
-  businessHours         String   @map("business_hours") // JSON
-  subscriptionPlan      String   @default("FREE") @map("subscription_plan")
+  businessHours         String    @map("business_hours") // JSON
+  subscriptionPlan      String    @default("FREE") @map("subscription_plan")
   subscriptionExpiresAt DateTime? @map("subscription_expires_at")
-  maxProfessionals      Int      @default(2) @map("max_professionals")
-  maxPatients           Int      @default(100) @map("max_patients")
-  
+  maxProfessionals      Int       @default(2) @map("max_professionals")
+  maxPatients           Int       @default(100) @map("max_patients")
+
   // Configuración de features
-  enableVipProgram      Boolean  @default(true) @map("enable_vip_program")
-  enableNotifications   Boolean  @default(true) @map("enable_notifications")
-  enableOnlineBooking   Boolean  @default(true) @map("enable_online_booking")
-  enablePayments        Boolean  @default(false) @map("enable_payments")
-  
+  enableVipProgram    Boolean @default(true) @map("enable_vip_program")
+  enableNotifications Boolean @default(true) @map("enable_notifications")
+  enableOnlineBooking Boolean @default(true) @map("enable_online_booking")
+  enablePayments      Boolean @default(false) @map("enable_payments")
+
   // Estados
-  isActive              Boolean  @default(true) @map("is_active")
-  isVerified            Boolean  @default(false) @map("is_verified")
-  onboardingCompleted   Boolean  @default(false) @map("onboarding_completed")
-  
+  isActive            Boolean @default(true) @map("is_active")
+  isVerified          Boolean @default(false) @map("is_verified")
+  onboardingCompleted Boolean @default(false) @map("onboarding_completed")
+
   // Metadata
-  settings              String?  // JSON configuraciones adicionales
-  createdAt             DateTime @default(now()) @map("created_at")
-  updatedAt             DateTime @updatedAt @map("updated_at")
-  
+  settings  String? // JSON configuraciones adicionales
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
   // Relaciones
-  professionals         Professional[]
-  users                 User[]
-  treatments            Treatment[]
-  appointments          Appointment[]
-  rewardTemplates       RewardTemplate[]
-  offers                Offer[]
-  
+  professionals   Professional[]
+  users           User[]
+  treatments      Treatment[]
+  appointments    Appointment[]
+  rewardTemplates RewardTemplate[]
+  offers          Offer[]
+
   @@index([slug], map: "idx_clinic_slug")
   @@index([city, isActive], map: "idx_clinic_location")
   @@index([subscriptionPlan, subscriptionExpiresAt], map: "idx_clinic_subscription")
@@ -66,72 +66,73 @@ model Clinic {
 // 👥 MODELO USER - PACIENTES CON MULTI-CLÍNICA
 // ============================================================================
 model User {
-  id                      String   @id @default(cuid())
-  email                   String   @unique
-  passwordHash            String   @map("password_hash")
-  firstName               String   @map("first_name")
-  lastName                String   @map("last_name")
-  phone                   String?
-  avatarUrl               String?  @map("avatar_url")
-  birthDate               DateTime? @map("birth_date")
-  gender                  String?  // F, M, Other, PreferNotToSay
-  
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String    @map("password_hash")
+  firstName    String    @map("first_name")
+  lastName     String    @map("last_name")
+  phone        String?
+  avatarUrl    String?   @map("avatar_url")
+  birthDate    DateTime? @map("birth_date")
+  gender       String? // F, M, Other, PreferNotToSay
+
   // Clínica principal (donde se registró)
-  primaryClinicId         String   @map("primary_clinic_id")
-  
+  primaryClinicId String @map("primary_clinic_id")
+
   // Datos médicos/estéticos
-  skinType                String?  @map("skin_type")
-  allergies               String?  // JSON array
-  medicalConditions       String?  @map("medical_conditions") // JSON
-  treatmentPreferences    String?  @map("treatment_preferences") // JSON
-  
+  skinType             String? @map("skin_type")
+  allergies            String? // JSON array
+  medicalConditions    String? @map("medical_conditions") // JSON
+  treatmentPreferences String? @map("treatment_preferences") // JSON
+
   // Gamificación
-  beautyPoints            Int      @default(0) @map("beauty_points")
-  totalInvestment         Float    @default(0) @map("total_investment")
-  sessionsCompleted       Int      @default(0) @map("sessions_completed")
-  loyaltyTier             String   @default("BRONZE") @map("loyalty_tier") // BRONZE, SILVER, GOLD, DIAMOND
-  vipStatus               Boolean  @default(false) @map("vip_status")
-  
+  beautyPoints      Int     @default(0) @map("beauty_points")
+  totalInvestment   Float   @default(0) @map("total_investment")
+  sessionsCompleted Int     @default(0) @map("sessions_completed")
+  loyaltyTier       String  @default("BRONZE") @map("loyalty_tier") // BRONZE, SILVER, GOLD, DIAMOND
+  vipStatus         Boolean @default(false) @map("vip_status")
+
   // Configuración de notificaciones
-  pushToken               String?   @map("push_token")
-  devicePlatform          String?   @map("device_platform") // ios, android
-  deviceInfo              String?   @map("device_info") // JSON
-  pushSettings            String?   @map("push_settings") // JSON
-  emailNotifications      Boolean   @default(true) @map("email_notifications")
-  smsNotifications        Boolean   @default(false) @map("sms_notifications")
-  marketingNotifications  Boolean   @default(true) @map("marketing_notifications")
-  lastNotificationSent    DateTime? @map("last_notification_sent")
-  
+  pushToken              String?   @map("push_token")
+  devicePlatform         String?   @map("device_platform") // ios, android
+  deviceInfo             String?   @map("device_info") // JSON
+  pushSettings           String?   @map("push_settings") // JSON
+  emailNotifications     Boolean   @default(true) @map("email_notifications")
+  smsNotifications       Boolean   @default(false) @map("sms_notifications")
+  marketingNotifications Boolean   @default(true) @map("marketing_notifications")
+  lastNotificationSent   DateTime? @map("last_notification_sent")
+
   // Estados
-  isActive                Boolean  @default(true) @map("is_active")
-  isVerified              Boolean  @default(false) @map("is_verified")
-  isBlocked               Boolean  @default(false) @map("is_blocked")
-  lastLoginAt             DateTime? @map("last_login_at")
-  
+  isActive    Boolean   @default(true) @map("is_active")
+  isVerified  Boolean   @default(false) @map("is_verified")
+  isBlocked   Boolean   @default(false) @map("is_blocked")
+  lastLoginAt DateTime? @map("last_login_at")
+
   // Metadata
-  referralCode            String?  @unique @map("referral_code")
-  referredBy              String?  @map("referred_by")
-  onboardingCompleted     Boolean  @default(false) @map("onboarding_completed")
-  privacyAccepted         Boolean  @default(false) @map("privacy_accepted")
-  termsAccepted           Boolean  @default(false) @map("terms_accepted")
-  marketingAccepted       Boolean  @default(false) @map("marketing_accepted")
-  
-  createdAt               DateTime @default(now()) @map("created_at")
-  updatedAt               DateTime @updatedAt @map("updated_at")
-  
+  referralCode        String? @unique @map("referral_code")
+  referredBy          String? @map("referred_by")
+  onboardingCompleted Boolean @default(false) @map("onboarding_completed")
+  privacyAccepted     Boolean @default(false) @map("privacy_accepted")
+  termsAccepted       Boolean @default(false) @map("terms_accepted")
+  marketingAccepted   Boolean @default(false) @map("marketing_accepted")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
   // Relaciones
-  primaryClinic           Clinic @relation(fields: [primaryClinicId], references: [id])
-  appointments            Appointment[]
-  vipSubscriptions        VipSubscription[]
-  invitations             Invitation[]
-  passwordResetTokens     PasswordResetToken[]
-  rewardRedemptions       RewardRedemption[]
-  stripeCustomer          StripeCustomer?
-  paymentMethods          PaymentMethod[]
-  payments                Payment[]
-  notificationLogs        NotificationLog[]
-  offerRedemptions        OfferRedemption[]
-  
+  primaryClinic       Clinic               @relation(fields: [primaryClinicId], references: [id])
+  appointments        Appointment[]
+  vipSubscriptions    VipSubscription[]
+  invitations         Invitation[]
+  passwordResetTokens PasswordResetToken[]
+  rewardRedemptions   RewardRedemption[]
+  stripeCustomer      StripeCustomer?
+  paymentMethods      PaymentMethod[]
+  payments            Payment[]
+  notificationLogs    NotificationLog[]
+  offerRedemptions    OfferRedemption[]
+  userSessions        UserSession[] // ✅ AGREGADO
+
   @@index([primaryClinicId, isActive], map: "idx_user_clinic")
   @@index([email], map: "idx_user_email")
   @@index([loyaltyTier, vipStatus], map: "idx_user_loyalty")
@@ -143,62 +144,63 @@ model User {
 // 👨‍⚕️ MODELO PROFESSIONAL - CON AUTENTICACIÓN COMPLETA
 // ============================================================================
 model Professional {
-  id                   String   @id @default(cuid())
-  clinicId             String   @map("clinic_id")
-  
+  id       String @id @default(cuid())
+  clinicId String @map("clinic_id")
+
   // Autenticación
-  email                String   @unique
-  passwordHash         String   @map("password_hash")
-  role                 String   @default("PROFESSIONAL") // PROFESSIONAL, MANAGER, RECEPTIONIST
-  
+  email        String @unique
+  passwordHash String @map("password_hash")
+  role         String @default("PROFESSIONAL") // PROFESSIONAL, MANAGER, RECEPTIONIST
+
   // Datos personales
-  firstName            String   @map("first_name")
-  lastName             String   @map("last_name")
-  phone                String?
-  avatarUrl            String?  @map("avatar_url")
-  
+  firstName String  @map("first_name")
+  lastName  String  @map("last_name")
+  phone     String?
+  avatarUrl String? @map("avatar_url")
+
   // Datos profesionales
-  licenseNumber        String?  @map("license_number")
-  specialties          String   // JSON array de especialidades
-  certifications       String?  // JSON array de certificaciones
-  experience           Int?     // Años de experiencia
-  bio                  String?
-  languages            String?  // JSON array de idiomas
-  
+  licenseNumber  String? @map("license_number")
+  specialties    String // JSON array de especialidades
+  certifications String? // JSON array de certificaciones
+  experience     Int? // Años de experiencia
+  bio            String?
+  languages      String? // JSON array de idiomas
+
   // Configuración laboral
-  employmentType       String   @default("FULL_TIME") @map("employment_type") // FULL_TIME, PART_TIME, CONTRACTOR
-  hourlyRate           Float?   @map("hourly_rate")
-  commissionRate       Float?   @map("commission_rate") // Porcentaje de comisión
-  availableHours       String?  @map("available_hours") // JSON horarios disponibles
-  workingDays          String?  @map("working_days") // JSON días laborables
-  
+  employmentType String  @default("FULL_TIME") @map("employment_type") // FULL_TIME, PART_TIME, CONTRACTOR
+  hourlyRate     Float?  @map("hourly_rate")
+  commissionRate Float?  @map("commission_rate") // Porcentaje de comisión
+  availableHours String? @map("available_hours") // JSON horarios disponibles
+  workingDays    String? @map("working_days") // JSON días laborables
+
   // Performance
-  rating               Float    @default(5.0)
-  totalAppointments    Int      @default(0) @map("total_appointments")
-  totalRevenue         Float    @default(0) @map("total_revenue")
-  patientSatisfaction  Float    @default(5.0) @map("patient_satisfaction")
-  
+  rating              Float @default(5.0)
+  totalAppointments   Int   @default(0) @map("total_appointments")
+  totalRevenue        Float @default(0) @map("total_revenue")
+  patientSatisfaction Float @default(5.0) @map("patient_satisfaction")
+
   // Permisos y accesos
-  permissions          String   @default("[]") // JSON array de permisos
-  canManageSchedule    Boolean  @default(true) @map("can_manage_schedule")
-  canViewReports       Boolean  @default(false) @map("can_view_reports")
-  canManagePatients    Boolean  @default(false) @map("can_manage_patients")
-  canManageTreatments  Boolean  @default(false) @map("can_manage_treatments")
-  
+  permissions         String  @default("[]") // JSON array de permisos
+  canManageSchedule   Boolean @default(true) @map("can_manage_schedule")
+  canViewReports      Boolean @default(false) @map("can_view_reports")
+  canManagePatients   Boolean @default(false) @map("can_manage_patients")
+  canManageTreatments Boolean @default(false) @map("can_manage_treatments")
+
   // Estados
-  isActive             Boolean  @default(true) @map("is_active")
-  isVerified           Boolean  @default(false) @map("is_verified")
-  onboardingCompleted  Boolean  @default(false) @map("onboarding_completed")
-  lastLoginAt          DateTime? @map("last_login_at")
-  
-  createdAt            DateTime @default(now()) @map("created_at")
-  updatedAt            DateTime @updatedAt @map("updated_at")
-  
+  isActive            Boolean   @default(true) @map("is_active")
+  isVerified          Boolean   @default(false) @map("is_verified")
+  onboardingCompleted Boolean   @default(false) @map("onboarding_completed")
+  lastLoginAt         DateTime? @map("last_login_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
   // Relaciones
-  clinic               Clinic @relation(fields: [clinicId], references: [id], onDelete: Cascade)
-  appointments         Appointment[]
-  passwordResetTokens  ProfessionalPasswordReset[]
-  
+  clinic              Clinic                      @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  appointments        Appointment[]
+  passwordResetTokens ProfessionalPasswordReset[]
+  userSessions        UserSession[] // ✅ AGREGADO
+
   @@index([clinicId, isActive], map: "idx_professional_clinic")
   @@index([email], map: "idx_professional_email")
   @@index([role, clinicId], map: "idx_professional_role")
@@ -215,9 +217,9 @@ model ProfessionalPasswordReset {
   expiresAt      DateTime @map("expires_at")
   used           Boolean  @default(false)
   createdAt      DateTime @default(now()) @map("created_at")
-  
-  professional   Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
-  
+
+  professional Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+
   @@map("professional_password_resets")
 }
 
@@ -231,9 +233,9 @@ model PasswordResetToken {
   expiresAt DateTime @map("expires_at")
   used      Boolean  @default(false)
   createdAt DateTime @default(now()) @map("created_at")
-  
-  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@map("password_reset_tokens")
 }
 
@@ -241,59 +243,59 @@ model PasswordResetToken {
 // 💉 MODELO TREATMENT - MEJORADO
 // ============================================================================
 model Treatment {
-  id               String   @id @default(cuid())
-  clinicId         String   @map("clinic_id")
-  
+  id       String @id @default(cuid())
+  clinicId String @map("clinic_id")
+
   // Información básica
   name             String
   description      String
-  shortDescription String?  @map("short_description")
-  category         String   // facial, corporal, depilacion, etc.
-  subcategory      String?  // limpieza, hidratacion, etc.
-  
+  shortDescription String? @map("short_description")
+  category         String // facial, corporal, depilacion, etc.
+  subcategory      String? // limpieza, hidratacion, etc.
+
   // Duración y precios
-  durationMinutes  Int      @map("duration_minutes")
-  price            Float
-  vipPrice         Float?   @map("vip_price") // Precio especial VIP
-  preparationTime  Int      @default(0) @map("preparation_time") // Tiempo prep en minutos
-  
+  durationMinutes Int    @map("duration_minutes")
+  price           Float
+  vipPrice        Float? @map("vip_price") // Precio especial VIP
+  preparationTime Int    @default(0) @map("preparation_time") // Tiempo prep en minutos
+
   // Configuración visual
-  iconName         String   @map("icon_name")
-  color            String?  // Color hex para la categoría
-  imageUrl         String?  @map("image_url")
-  gallery          String?  // JSON array de URLs de imágenes
-  
+  iconName String  @map("icon_name")
+  color    String? // Color hex para la categoría
+  imageUrl String? @map("image_url")
+  gallery  String? // JSON array de URLs de imágenes
+
   // Requisitos y restricciones
-  ageRestriction   String?  @map("age_restriction") // "18+", "16+", etc.
+  ageRestriction    String? @map("age_restriction") // "18+", "16+", etc.
   contraindications String? // JSON array de contraindicaciones
-  requirements     String?  // JSON array de requisitos previos
-  aftercareInfo    String?  @map("aftercare_info") // Cuidados post-tratamiento
-  
+  requirements      String? // JSON array de requisitos previos
+  aftercareInfo     String? @map("aftercare_info") // Cuidados post-tratamiento
+
   // Configuración de negocio
-  isVipExclusive   Boolean  @default(false) @map("is_vip_exclusive")
+  isVipExclusive       Boolean @default(false) @map("is_vip_exclusive")
   requiresConsultation Boolean @default(false) @map("requires_consultation")
-  maxSessionsPerMonth Int?  @map("max_sessions_per_month")
-  beautyPointsEarned Int   @default(10) @map("beauty_points_earned")
-  
+  maxSessionsPerMonth  Int?    @map("max_sessions_per_month")
+  beautyPointsEarned   Int     @default(10) @map("beauty_points_earned")
+
   // Estados
-  isActive         Boolean  @default(true) @map("is_active")
-  isFeatured       Boolean  @default(false) @map("is_featured")
-  isPopular        Boolean  @default(false) @map("is_popular")
-  isNew            Boolean  @default(false) @map("is_new")
-  
+  isActive   Boolean @default(true) @map("is_active")
+  isFeatured Boolean @default(false) @map("is_featured")
+  isPopular  Boolean @default(false) @map("is_popular")
+  isNew      Boolean @default(false) @map("is_new")
+
   // Metadata
-  tags             String?  // JSON array de tags
-  seoTitle         String?  @map("seo_title")
-  seoDescription   String?  @map("seo_description")
-  sortOrder        Int      @default(0) @map("sort_order")
-  
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
-  
+  tags           String? // JSON array de tags
+  seoTitle       String? @map("seo_title")
+  seoDescription String? @map("seo_description")
+  sortOrder      Int     @default(0) @map("sort_order")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
   // Relaciones
-  clinic           Clinic @relation(fields: [clinicId], references: [id], onDelete: Cascade)
-  appointments     Appointment[]
-  
+  clinic       Clinic        @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  appointments Appointment[]
+
   @@index([clinicId, isActive], map: "idx_treatment_clinic")
   @@index([category, isActive], map: "idx_treatment_category")
   @@index([isVipExclusive, isFeatured], map: "idx_treatment_special")
@@ -304,63 +306,63 @@ model Treatment {
 // 📅 MODELO APPOINTMENT - OPTIMIZADO
 // ============================================================================
 model Appointment {
-  id                    String   @id @default(cuid())
-  
+  id String @id @default(cuid())
+
   // Referencias principales
-  userId                String   @map("user_id")
-  clinicId              String   @map("clinic_id")
-  professionalId        String   @map("professional_id")
-  treatmentId           String   @map("treatment_id")
-  
+  userId         String @map("user_id")
+  clinicId       String @map("clinic_id")
+  professionalId String @map("professional_id")
+  treatmentId    String @map("treatment_id")
+
   // Programación
-  scheduledDate         DateTime @map("scheduled_date")
-  scheduledTime         DateTime @map("scheduled_time")
-  endTime               DateTime @map("end_time")
-  timezone              String   @default("Europe/Madrid")
-  
+  scheduledDate DateTime @map("scheduled_date")
+  scheduledTime DateTime @map("scheduled_time")
+  endTime       DateTime @map("end_time")
+  timezone      String   @default("Europe/Madrid")
+
   // Configuración
-  durationMinutes       Int      @map("duration_minutes")
-  status                String   @default("PENDING") // PENDING, CONFIRMED, IN_PROGRESS, COMPLETED, CANCELLED, NO_SHOW
-  priority              String   @default("NORMAL") // LOW, NORMAL, HIGH, URGENT
-  
+  durationMinutes Int    @map("duration_minutes")
+  status          String @default("PENDING") // PENDING, CONFIRMED, IN_PROGRESS, COMPLETED, CANCELLED, NO_SHOW
+  priority        String @default("NORMAL") // LOW, NORMAL, HIGH, URGENT
+
   // Información adicional
-  notes                 String?  // Notas del paciente
-  professionalNotes     String?  @map("professional_notes") // Notas del profesional
-  cancelReason          String?  @map("cancel_reason")
-  rescheduleReason      String?  @map("reschedule_reason")
-  
+  notes             String? // Notas del paciente
+  professionalNotes String? @map("professional_notes") // Notas del profesional
+  cancelReason      String? @map("cancel_reason")
+  rescheduleReason  String? @map("reschedule_reason")
+
   // Facturación y puntos
-  originalPrice         Float    @map("original_price")
-  finalPrice            Float    @map("final_price")
-  discountApplied       Float    @default(0) @map("discount_applied")
-  beautyPointsEarned    Int      @default(0) @map("beauty_points_earned")
-  beautyPointsUsed      Int      @default(0) @map("beauty_points_used")
-  
+  originalPrice      Float @map("original_price")
+  finalPrice         Float @map("final_price")
+  discountApplied    Float @default(0) @map("discount_applied")
+  beautyPointsEarned Int   @default(0) @map("beauty_points_earned")
+  beautyPointsUsed   Int   @default(0) @map("beauty_points_used")
+
   // Recordatorios y notificaciones
-  reminderSent          Boolean  @default(false) @map("reminder_sent")
-  confirmationSent      Boolean  @default(false) @map("confirmation_sent")
-  followUpSent          Boolean  @default(false) @map("follow_up_sent")
-  
+  reminderSent     Boolean @default(false) @map("reminder_sent")
+  confirmationSent Boolean @default(false) @map("confirmation_sent")
+  followUpSent     Boolean @default(false) @map("follow_up_sent")
+
   // Metadata
-  bookingSource         String   @default("APP") // APP, WEB, PHONE, WALK_IN
-  isFirstVisit          Boolean  @default(false) @map("is_first_visit")
-  
+  bookingSource String  @default("APP") // APP, WEB, PHONE, WALK_IN
+  isFirstVisit  Boolean @default(false) @map("is_first_visit")
+
   // Timestamps
-  confirmedAt           DateTime? @map("confirmed_at")
-  startedAt             DateTime? @map("started_at")
-  completedAt           DateTime? @map("completed_at")
-  cancelledAt           DateTime? @map("cancelled_at")
-  createdAt             DateTime @default(now()) @map("created_at")
-  updatedAt             DateTime @updatedAt @map("updated_at")
-  
+  confirmedAt DateTime? @map("confirmed_at")
+  startedAt   DateTime? @map("started_at")
+  completedAt DateTime? @map("completed_at")
+  cancelledAt DateTime? @map("cancelled_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
   // Relaciones
-  user                  User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  clinic                Clinic       @relation(fields: [clinicId], references: [id], onDelete: Cascade)
-  professional          Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
-  treatment             Treatment    @relation(fields: [treatmentId], references: [id], onDelete: Cascade)
-  rewardRedemptions     RewardRedemption[]
-  offerRedemptions      OfferRedemption[]
-  
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clinic            Clinic             @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  professional      Professional       @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  treatment         Treatment          @relation(fields: [treatmentId], references: [id], onDelete: Cascade)
+  rewardRedemptions RewardRedemption[]
+  offerRedemptions  OfferRedemption[]
+
   @@index([userId, status], map: "idx_appointment_user")
   @@index([clinicId, scheduledDate], map: "idx_appointment_clinic_date")
   @@index([professionalId, scheduledDate], map: "idx_appointment_professional")
@@ -372,48 +374,48 @@ model Appointment {
 // ✨ VIP SUBSCRIPTION - MEJORADO PARA STRIPE
 // ============================================================================
 model VipSubscription {
-  id                   String   @id @default(cuid())
-  userId               String   @map("user_id")
-  clinicId             String   @map("clinic_id") // ✅ NUEVO: VIP por clínica
-  
+  id       String @id @default(cuid())
+  userId   String @map("user_id")
+  clinicId String @map("clinic_id") // ✅ NUEVO: VIP por clínica
+
   // Stripe integration
-  stripeSubscriptionId String   @unique @map("stripe_subscription_id")
-  stripeCustomerId     String   @map("stripe_customer_id")
-  stripePriceId        String   @map("stripe_price_id")
-  
+  stripeSubscriptionId String @unique @map("stripe_subscription_id")
+  stripeCustomerId     String @map("stripe_customer_id")
+  stripePriceId        String @map("stripe_price_id")
+
   // Configuración del plan
-  planType             String   @map("plan_type") // MONTHLY, QUARTERLY, YEARLY
-  planName             String   @map("plan_name") // "VIP Gold", "VIP Platinum"
-  status               String   @default("ACTIVE") // ACTIVE, CANCELED, PAST_DUE, INCOMPLETE, TRIALING
-  
+  planType String @map("plan_type") // MONTHLY, QUARTERLY, YEARLY
+  planName String @map("plan_name") // "VIP Gold", "VIP Platinum"
+  status   String @default("ACTIVE") // ACTIVE, CANCELED, PAST_DUE, INCOMPLETE, TRIALING
+
   // Precios
-  price                Float    // Precio en EUR
-  currency             String   @default("EUR")
-  discount             Float    @default(0) // Descuento aplicado
-  
+  price    Float // Precio en EUR
+  currency String @default("EUR")
+  discount Float  @default(0) // Descuento aplicado
+
   // Períodos
-  currentPeriodStart   DateTime @map("current_period_start")
-  currentPeriodEnd     DateTime @map("current_period_end")
-  trialStart           DateTime? @map("trial_start")
-  trialEnd             DateTime? @map("trial_end")
-  
+  currentPeriodStart DateTime  @map("current_period_start")
+  currentPeriodEnd   DateTime  @map("current_period_end")
+  trialStart         DateTime? @map("trial_start")
+  trialEnd           DateTime? @map("trial_end")
+
   // Configuración de cancelación
-  cancelAtPeriodEnd    Boolean  @default(false) @map("cancel_at_period_end")
-  canceledAt           DateTime? @map("canceled_at")
-  cancelReason         String?  @map("cancel_reason")
-  
+  cancelAtPeriodEnd Boolean   @default(false) @map("cancel_at_period_end")
+  canceledAt        DateTime? @map("canceled_at")
+  cancelReason      String?   @map("cancel_reason")
+
   // Beneficios y uso
-  monthlyTreatments    Int      @default(2) @map("monthly_treatments") // Tratamientos incluidos
-  usedTreatments       Int      @default(0) @map("used_treatments")
-  discountPercentage   Int      @default(20) @map("discount_percentage") // % descuento adicional
-  priorityBooking      Boolean  @default(true) @map("priority_booking")
-  
-  createdAt            DateTime @default(now()) @map("created_at")
-  updatedAt            DateTime @updatedAt @map("updated_at")
-  
+  monthlyTreatments  Int     @default(2) @map("monthly_treatments") // Tratamientos incluidos
+  usedTreatments     Int     @default(0) @map("used_treatments")
+  discountPercentage Int     @default(20) @map("discount_percentage") // % descuento adicional
+  priorityBooking    Boolean @default(true) @map("priority_booking")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
   // Relaciones
-  user                 User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@index([userId, status], map: "idx_user_subscription_status")
   @@index([status, currentPeriodEnd], map: "idx_subscription_expiry")
   @@index([stripeSubscriptionId], map: "idx_stripe_subscription")
@@ -425,69 +427,69 @@ model VipSubscription {
 // 🎁 MODELO OFFERS - MEJORADO
 // ============================================================================
 model Offer {
-  id              String   @id @default(cuid())
-  clinicId        String   @map("clinic_id")
-  
+  id       String @id @default(cuid())
+  clinicId String @map("clinic_id")
+
   // Información básica
-  title           String
-  description     String
+  title            String
+  description      String
   shortDescription String? @map("short_description")
-  terms           String?  // Términos y condiciones
-  
+  terms            String? // Términos y condiciones
+
   // Configuración de descuento
-  discountType    String   @default("PERCENTAGE") // PERCENTAGE, FIXED_AMOUNT, FREE_TREATMENT, BUY_ONE_GET_ONE
-  discountValue   Float    // Porcentaje o monto fijo
-  originalPrice   Float?   @map("original_price")
-  finalPrice      Float?   @map("final_price")
-  minPurchase     Float?   @map("min_purchase") // Compra mínima requerida
-  
+  discountType  String @default("PERCENTAGE") // PERCENTAGE, FIXED_AMOUNT, FREE_TREATMENT, BUY_ONE_GET_ONE
+  discountValue Float // Porcentaje o monto fijo
+  originalPrice Float? @map("original_price")
+  finalPrice    Float? @map("final_price")
+  minPurchase   Float? @map("min_purchase") // Compra mínima requerida
+
   // Validez temporal
-  validFrom       DateTime @map("valid_from")
-  validUntil      DateTime @map("valid_until")
-  
+  validFrom  DateTime @map("valid_from")
+  validUntil DateTime @map("valid_until")
+
   // Targeting y segmentación
-  targetAudience  String   @default("ALL") @map("target_audience") // ALL, VIP, NEW_CUSTOMERS, RETURNING, BIRTHDAY
-  minAge          Int?     @map("min_age")
-  maxAge          Int?     @map("max_age")
-  genderTarget    String?  @map("gender_target") // F, M, ALL
+  targetAudience    String  @default("ALL") @map("target_audience") // ALL, VIP, NEW_CUSTOMERS, RETURNING, BIRTHDAY
+  minAge            Int?    @map("min_age")
+  maxAge            Int?    @map("max_age")
+  genderTarget      String? @map("gender_target") // F, M, ALL
   loyaltyTierTarget String? @map("loyalty_tier_target") // BRONZE, SILVER, GOLD, DIAMOND
-  
+
   // Tratamientos aplicables
-  treatmentIds    String   @default("[]") @map("treatment_ids") // JSON array de IDs
-  categoryIds     String   @default("[]") @map("category_ids") // JSON array de categorías
-  
+  treatmentIds String @default("[]") @map("treatment_ids") // JSON array de IDs
+  categoryIds  String @default("[]") @map("category_ids") // JSON array de categorías
+
   // Límites de uso
-  maxUses         Int?     @map("max_uses")      // Máximo total de usos
-  maxUsesPerUser  Int      @default(1) @map("max_uses_per_user")
-  currentUses     Int      @default(0) @map("current_uses")
-  
+  maxUses        Int? @map("max_uses") // Máximo total de usos
+  maxUsesPerUser Int  @default(1) @map("max_uses_per_user")
+  currentUses    Int  @default(0) @map("current_uses")
+
   // Configuración visual y marketing
-  imageUrl        String?  @map("image_url")
-  backgroundColor String?  @map("background_color")
-  textColor       String?  @map("text_color")
-  priority        Int      @default(1) // 1=alta, 2=media, 3=baja
-  category        String   @default("GENERAL") // GENERAL, SEASONAL, VIP, LOYALTY, BIRTHDAY
-  
+  imageUrl        String? @map("image_url")
+  backgroundColor String? @map("background_color")
+  textColor       String? @map("text_color")
+  priority        Int     @default(1) // 1=alta, 2=media, 3=baja
+  category        String  @default("GENERAL") // GENERAL, SEASONAL, VIP, LOYALTY, BIRTHDAY
+
   // Configuración de notificaciones
-  sendNotification Boolean @default(true) @map("send_notification")
+  sendNotification     Boolean @default(true) @map("send_notification")
   notificationSchedule String? @map("notification_schedule") // JSON con horarios
-  
+
   // Estados
-  isActive        Boolean  @default(true) @map("is_active")
-  isFeatured      Boolean  @default(false) @map("is_featured")
-  autoApply       Boolean  @default(false) @map("auto_apply") // Se aplica automáticamente
-  
+  isActive   Boolean @default(true) @map("is_active")
+  isFeatured Boolean @default(false) @map("is_featured")
+  autoApply  Boolean @default(false) @map("auto_apply") // Se aplica automáticamente
+
   // Metadata
-  code            String?  @unique // Código promocional opcional
-  tags            String?  // JSON array de tags
-  
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
-  
+  code String? @unique // Código promocional opcional
+  tags String? // JSON array de tags
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
   // Relaciones
-  clinic          Clinic @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  clinic           Clinic            @relation(fields: [clinicId], references: [id], onDelete: Cascade)
   offerRedemptions OfferRedemption[]
-  
+
   @@index([clinicId, isActive], map: "idx_clinic_active_offers")
   @@index([validFrom, validUntil], map: "idx_offer_validity")
   @@index([targetAudience, category], map: "idx_offer_targeting")
@@ -499,35 +501,35 @@ model Offer {
 // 🎁 REDEMPTION DE OFERTAS
 // ============================================================================
 model OfferRedemption {
-  id           String   @id @default(cuid())
-  offerId      String   @map("offer_id")
-  userId       String   @map("user_id")
+  id            String  @id @default(cuid())
+  offerId       String  @map("offer_id")
+  userId        String  @map("user_id")
   appointmentId String? @map("appointment_id")
-  
+
   // Información del canje
-  redeemedAt   DateTime @default(now()) @map("redeemed_at")
-  originalPrice Float   @map("original_price")
-  discountApplied Float @map("discount_applied")
-  finalPrice   Float    @map("final_price")
-  
+  redeemedAt      DateTime @default(now()) @map("redeemed_at")
+  originalPrice   Float    @map("original_price")
+  discountApplied Float    @map("discount_applied")
+  finalPrice      Float    @map("final_price")
+
   // Estados y validez
-  status       String   @default("ACTIVE") // ACTIVE, USED, EXPIRED, CANCELLED
-  code         String   @unique // Código único del cupón
-  usedAt       DateTime? @map("used_at")
-  expiresAt    DateTime @map("expires_at")
-  
+  status    String    @default("ACTIVE") // ACTIVE, USED, EXPIRED, CANCELLED
+  code      String    @unique // Código único del cupón
+  usedAt    DateTime? @map("used_at")
+  expiresAt DateTime  @map("expires_at")
+
   // Metadata
-  notes        String?
+  notes         String?
   usageLocation String? @map("usage_location") // APP, WEB, IN_PERSON
-  
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
-  
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
   // Relaciones
-  offer        Offer @relation(fields: [offerId], references: [id], onDelete: Cascade)
-  user         User  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  appointment  Appointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
-  
+  offer       Offer        @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  appointment Appointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+
   @@index([userId, status], map: "idx_user_offer_redemptions")
   @@index([offerId, status], map: "idx_offer_usage")
   @@index([expiresAt], map: "idx_offer_expiry")
@@ -538,41 +540,41 @@ model OfferRedemption {
 // 🔔 NOTIFICATIONLOG - MEJORADO
 // ============================================================================
 model NotificationLog {
-  id          String   @id @default(cuid())
-  userId      String   @map("user_id")
-  clinicId    String?  @map("clinic_id") // ✅ NUEVO: tracking por clínica
-  
+  id       String  @id @default(cuid())
+  userId   String  @map("user_id")
+  clinicId String? @map("clinic_id") // ✅ NUEVO: tracking por clínica
+
   // Tipo y contenido
-  type        String   // appointment, wellness, promotion, general, offer, reminder
-  category    String?  // marketing, transactional, reminder
-  title       String
-  body        String
-  
+  type     String // appointment, wellness, promotion, general, offer, reminder
+  category String? // marketing, transactional, reminder
+  title    String
+  body     String
+
   // Envío y entrega
-  sentAt      DateTime @default(now()) @map("sent_at")
-  delivered   Boolean  @default(false)
-  opened      Boolean  @default(false)
-  clicked     Boolean  @default(false)
-  
+  sentAt    DateTime @default(now()) @map("sent_at")
+  delivered Boolean  @default(false)
+  opened    Boolean  @default(false)
+  clicked   Boolean  @default(false)
+
   // Configuración técnica
-  channel     String   @default("PUSH") // PUSH, EMAIL, SMS
-  data        String?  // JSON adicional
-  pushToken   String?  @map("push_token")
-  platform    String?  // ios, android
-  
+  channel   String  @default("PUSH") // PUSH, EMAIL, SMS
+  data      String? // JSON adicional
+  pushToken String? @map("push_token")
+  platform  String? // ios, android
+
   // Errores y reintentos
-  error       String?  // Error si falla el envío
-  retryCount  Int      @default(0) @map("retry_count")
-  
+  error      String? // Error si falla el envío
+  retryCount Int     @default(0) @map("retry_count")
+
   // Metadata
-  campaignId  String?  @map("campaign_id") // Para campañas masivas
-  
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
-  
+  campaignId String? @map("campaign_id") // Para campañas masivas
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
   // Relaciones
-  user        User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@index([userId, type], map: "idx_user_notification_type")
   @@index([sentAt], map: "idx_notification_date")
   @@index([delivered, opened], map: "idx_notification_status")
@@ -584,31 +586,31 @@ model NotificationLog {
 // 🎯 SISTEMA DE INVITACIONES
 // ============================================================================
 model Invitation {
-  id            String   @id @default(cuid())
-  inviterId     String   @map("inviter_id")
-  clinicId      String   @map("clinic_id") // ✅ NUEVO: invitaciones por clínica
-  inviteeEmail  String   @map("invitee_email")
-  inviteeName   String?  @map("invitee_name")
-  
+  id           String  @id @default(cuid())
+  inviterId    String  @map("inviter_id")
+  clinicId     String  @map("clinic_id") // ✅ NUEVO: invitaciones por clínica
+  inviteeEmail String  @map("invitee_email")
+  inviteeName  String? @map("invitee_name")
+
   // Estado y recompensas
-  status        String   @default("PENDING") // PENDING, ACCEPTED, EXPIRED, CANCELLED
-  rewardPoints  Int      @default(50) @map("reward_points")
-  bonusPoints   Int      @default(0) @map("bonus_points") // Puntos extra por campañas
-  
+  status       String @default("PENDING") // PENDING, ACCEPTED, EXPIRED, CANCELLED
+  rewardPoints Int    @default(50) @map("reward_points")
+  bonusPoints  Int    @default(0) @map("bonus_points") // Puntos extra por campañas
+
   // Validez
-  expiresAt     DateTime @map("expires_at")
-  acceptedAt    DateTime? @map("accepted_at")
-  
+  expiresAt  DateTime  @map("expires_at")
+  acceptedAt DateTime? @map("accepted_at")
+
   // Metadata
-  message       String?  // Mensaje personalizado
-  inviteCode    String   @unique @map("invite_code")
-  
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
-  
+  message    String? // Mensaje personalizado
+  inviteCode String  @unique @map("invite_code")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
   // Relaciones
-  inviter       User @relation(fields: [inviterId], references: [id], onDelete: Cascade)
-  
+  inviter User @relation(fields: [inviterId], references: [id], onDelete: Cascade)
+
   @@index([inviterId, status], map: "idx_inviter_status")
   @@index([inviteCode], map: "idx_invite_code")
   @@index([expiresAt], map: "idx_invitation_expiry")
@@ -619,42 +621,42 @@ model Invitation {
 // 💡 WELLNESS TIPS
 // ============================================================================
 model WellnessTip {
-  id          String   @id @default(cuid())
-  clinicId    String?  @map("clinic_id") // ✅ NUEVO: tips por clínica (null = global)
-  
-  title       String
-  content     String
-  excerpt     String?  // Resumen corto
-  category    String   // skincare, nutrition, lifestyle, treatments
-  
+  id       String  @id @default(cuid())
+  clinicId String? @map("clinic_id") // ✅ NUEVO: tips por clínica (null = global)
+
+  title    String
+  content  String
+  excerpt  String? // Resumen corto
+  category String // skincare, nutrition, lifestyle, treatments
+
   // Targeting
-  targetAge   String?  @map("target_age") // "20-30", "30-40", etc.
+  targetAge    String? @map("target_age") // "20-30", "30-40", etc.
   targetGender String? @map("target_gender") // F, M, ALL
-  seasonality String?  // JSON para estacionalidad
-  
+  seasonality  String? // JSON para estacionalidad
+
   // Visual
-  iconName    String   @map("icon_name")
-  imageUrl    String?  @map("image_url")
-  color       String?  // Color hex
-  
+  iconName String  @map("icon_name")
+  imageUrl String? @map("image_url")
+  color    String? // Color hex
+
   // Configuración
-  isActive    Boolean  @default(true) @map("is_active")
-  isFeatured  Boolean  @default(false) @map("is_featured")
-  priority    Int      @default(1) // Orden de aparición
-  
+  isActive   Boolean @default(true) @map("is_active")
+  isFeatured Boolean @default(false) @map("is_featured")
+  priority   Int     @default(1) // Orden de aparición
+
   // Engagement
-  views       Int      @default(0)
-  likes       Int      @default(0)
-  shares      Int      @default(0)
-  
+  views  Int @default(0)
+  likes  Int @default(0)
+  shares Int @default(0)
+
   // Metadata
-  tags        String?  // JSON array de tags
-  authorName  String?  @map("author_name")
-  sourceUrl   String?  @map("source_url")
-  
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
-  
+  tags       String? // JSON array de tags
+  authorName String? @map("author_name")
+  sourceUrl  String? @map("source_url")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
   @@index([clinicId, isActive], map: "idx_wellness_clinic")
   @@index([category, isActive], map: "idx_wellness_category")
   @@index([isFeatured, priority], map: "idx_wellness_featured")
@@ -665,28 +667,28 @@ model WellnessTip {
 // 💰 STRIPE INTEGRATION - CUSTOMER MANAGEMENT
 // ============================================================================
 model StripeCustomer {
-  id               String   @id @default(cuid())
-  userId           String   @unique @map("user_id")
-  stripeCustomerId String   @unique @map("stripe_customer_id")
+  id               String  @id @default(cuid())
+  userId           String  @unique @map("user_id")
+  stripeCustomerId String  @unique @map("stripe_customer_id")
   email            String
   name             String?
   phone            String?
-  address          String?  // JSON con dirección completa
-  taxId            String?  @map("tax_id") // NIF/CIF para facturación
-  
+  address          String? // JSON con dirección completa
+  taxId            String? @map("tax_id") // NIF/CIF para facturación
+
   // Estados
-  isDeleted        Boolean  @default(false) @map("is_deleted")
-  deletedAt        DateTime? @map("deleted_at")
-  
+  isDeleted Boolean   @default(false) @map("is_deleted")
+  deletedAt DateTime? @map("deleted_at")
+
   // Metadata
-  metadata         String?  // JSON adicional de Stripe
-  
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
-  
+  metadata String? // JSON adicional de Stripe
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
   // Relaciones
-  user             User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@index([stripeCustomerId], map: "idx_stripe_customer")
   @@map("stripe_customers")
 }
@@ -695,38 +697,38 @@ model StripeCustomer {
 // 💳 PAYMENT METHODS - GESTIÓN DE TARJETAS
 // ============================================================================
 model PaymentMethod {
-  id               String   @id @default(cuid())
-  userId           String   @map("user_id")
-  stripeMethodId   String   @unique @map("stripe_method_id")
-  
+  id             String @id @default(cuid())
+  userId         String @map("user_id")
+  stripeMethodId String @unique @map("stripe_method_id")
+
   // Información de la tarjeta
-  type             String   // card, sepa_debit, ideal, etc.
-  last4            String?
-  brand            String?  // visa, mastercard, amex
-  expiryMonth      Int?     @map("expiry_month")
-  expiryYear       Int?     @map("expiry_year")
-  funding          String?  // credit, debit, prepaid
-  country          String?
-  
+  type        String // card, sepa_debit, ideal, etc.
+  last4       String?
+  brand       String? // visa, mastercard, amex
+  expiryMonth Int?    @map("expiry_month")
+  expiryYear  Int?    @map("expiry_year")
+  funding     String? // credit, debit, prepaid
+  country     String?
+
   // Configuración
-  isDefault        Boolean  @default(false) @map("is_default")
-  nickname         String?  // Nombre personalizado por el usuario
-  
+  isDefault Boolean @default(false) @map("is_default")
+  nickname  String? // Nombre personalizado por el usuario
+
   // Estados
-  isActive         Boolean  @default(true) @map("is_active")
-  isVerified       Boolean  @default(false) @map("is_verified")
-  deletedAt        DateTime? @map("deleted_at")
-  
+  isActive   Boolean   @default(true) @map("is_active")
+  isVerified Boolean   @default(false) @map("is_verified")
+  deletedAt  DateTime? @map("deleted_at")
+
   // Metadata de Stripe
-  fingerprint      String?
-  metadata         String?  // JSON adicional
-  
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
-  
+  fingerprint String?
+  metadata    String? // JSON adicional
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
   // Relaciones
-  user             User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@index([userId, isDefault], map: "idx_user_default_payment")
   @@index([userId, isActive], map: "idx_user_active_payments")
   @@map("payment_methods")
@@ -736,52 +738,52 @@ model PaymentMethod {
 // 💰 PAYMENTS - HISTORIAL DE PAGOS
 // ============================================================================
 model Payment {
-  id                   String   @id @default(cuid())
-  userId               String   @map("user_id")
-  clinicId             String?  @map("clinic_id") // Para pagos de tratamientos
-  
+  id       String  @id @default(cuid())
+  userId   String  @map("user_id")
+  clinicId String? @map("clinic_id") // Para pagos de tratamientos
+
   // IDs de Stripe
-  stripeInvoiceId      String?  @map("stripe_invoice_id")
+  stripeInvoiceId       String? @map("stripe_invoice_id")
   stripePaymentIntentId String? @map("stripe_payment_intent_id")
-  stripeSubscriptionId String?  @map("stripe_subscription_id")
-  stripeChargeId       String?  @map("stripe_charge_id")
-  
+  stripeSubscriptionId  String? @map("stripe_subscription_id")
+  stripeChargeId        String? @map("stripe_charge_id")
+
   // Información del pago
-  amount               Float    // En EUR
-  currency             String   @default("EUR")
-  status               String   // SUCCESS, FAILED, PENDING, REFUNDED, PARTIALLY_REFUNDED
-  description          String?
-  
+  amount      Float // En EUR
+  currency    String  @default("EUR")
+  status      String // SUCCESS, FAILED, PENDING, REFUNDED, PARTIALLY_REFUNDED
+  description String?
+
   // Tipo de pago
-  paymentType          String   @default("SUBSCRIPTION") // SUBSCRIPTION, TREATMENT, TOPUP, PRODUCT
-  relatedId            String?  @map("related_id") // ID del appointment, subscription, etc.
-  
+  paymentType String  @default("SUBSCRIPTION") // SUBSCRIPTION, TREATMENT, TOPUP, PRODUCT
+  relatedId   String? @map("related_id") // ID del appointment, subscription, etc.
+
   // Información de facturación
-  customerName         String?  @map("customer_name")
-  customerEmail        String?  @map("customer_email")
-  invoiceNumber        String?  @map("invoice_number")
-  taxAmount            Float?   @map("tax_amount")
-  
+  customerName  String? @map("customer_name")
+  customerEmail String? @map("customer_email")
+  invoiceNumber String? @map("invoice_number")
+  taxAmount     Float?  @map("tax_amount")
+
   // Errores y reembolsos
-  failureReason        String?  @map("failure_reason")
-  refundAmount         Float?   @map("refund_amount")
-  refundReason         String?  @map("refund_reason")
-  
+  failureReason String? @map("failure_reason")
+  refundAmount  Float?  @map("refund_amount")
+  refundReason  String? @map("refund_reason")
+
   // Timestamps
-  paidAt               DateTime? @map("paid_at")
-  refundedAt           DateTime? @map("refunded_at")
-  failedAt             DateTime? @map("failed_at")
-  
+  paidAt     DateTime? @map("paid_at")
+  refundedAt DateTime? @map("refunded_at")
+  failedAt   DateTime? @map("failed_at")
+
   // Metadata
-  metadata             String?  // JSON adicional
-  receiptUrl           String?  @map("receipt_url")
-  
-  createdAt            DateTime @default(now()) @map("created_at")
-  updatedAt            DateTime @updatedAt @map("updated_at")
-  
+  metadata   String? // JSON adicional
+  receiptUrl String? @map("receipt_url")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
   // Relaciones
-  user                 User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@index([userId, status], map: "idx_user_payments")
   @@index([stripeInvoiceId], map: "idx_stripe_invoice")
   @@index([clinicId, paymentType], map: "idx_clinic_payments")
@@ -793,25 +795,25 @@ model Payment {
 // 🔗 WEBHOOK EVENTS - GESTIÓN DE EVENTOS STRIPE
 // ============================================================================
 model WebhookEvent {
-  id              String   @id @default(cuid())
-  stripeEventId   String   @unique @map("stripe_event_id")
-  eventType       String   @map("event_type")
-  
+  id            String @id @default(cuid())
+  stripeEventId String @unique @map("stripe_event_id")
+  eventType     String @map("event_type")
+
   // Procesamiento
-  processed       Boolean  @default(false)
-  error           String?
-  retryCount      Int      @default(0) @map("retry_count")
-  
+  processed  Boolean @default(false)
+  error      String?
+  retryCount Int     @default(0) @map("retry_count")
+
   // Datos del evento
-  data            String   // JSON del evento completo
-  livemode        Boolean  @default(false)
-  apiVersion      String?  @map("api_version")
-  
+  data       String // JSON del evento completo
+  livemode   Boolean @default(false)
+  apiVersion String? @map("api_version")
+
   // Timestamps
-  eventCreatedAt  DateTime @map("event_created_at") // Timestamp del evento en Stripe
-  processedAt     DateTime? @map("processed_at")
-  createdAt       DateTime @default(now()) @map("created_at")
-  
+  eventCreatedAt DateTime  @map("event_created_at") // Timestamp del evento en Stripe
+  processedAt    DateTime? @map("processed_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
   @@index([stripeEventId], map: "idx_stripe_event")
   @@index([eventType, processed], map: "idx_webhook_processing")
   @@index([createdAt], map: "idx_webhook_cleanup")
@@ -822,61 +824,61 @@ model WebhookEvent {
 // 🏆 REWARD SYSTEM - PLANTILLAS DE RECOMPENSAS
 // ============================================================================
 model RewardTemplate {
-  id               String   @id @default(cuid())
-  clinicId         String   @map("clinic_id")
-  
+  id       String @id @default(cuid())
+  clinicId String @map("clinic_id")
+
   // Información básica
   name             String
   description      String
-  shortDescription String?  @map("short_description")
-  type             String   // DISCOUNT, UPGRADE, FREE_SERVICE, PRODUCT, POINTS_MULTIPLIER
-  
+  shortDescription String? @map("short_description")
+  type             String // DISCOUNT, UPGRADE, FREE_SERVICE, PRODUCT, POINTS_MULTIPLIER
+
   // Configuración del valor
-  value            Float    // Valor del descuento o costo del servicio
-  valueType        String   @default("PERCENTAGE") @map("value_type") // PERCENTAGE, FIXED, POINTS
-  pointsCost       Int      @map("points_cost")
-  marginCost       Float    @map("margin_cost") // Costo real para la clínica
-  
+  value      Float // Valor del descuento o costo del servicio
+  valueType  String @default("PERCENTAGE") @map("value_type") // PERCENTAGE, FIXED, POINTS
+  pointsCost Int    @map("points_cost")
+  marginCost Float  @map("margin_cost") // Costo real para la clínica
+
   // Restricciones y condiciones
-  conditions       String?  // JSON con condiciones especiales
-  validityDays     Int      @default(30) @map("validity_days")
-  maxUsesPerMonth  Int      @default(10) @map("max_uses_per_month")
-  maxUsesPerUser   Int      @default(1) @map("max_uses_per_user")
-  minLoyaltyScore  Int      @default(0) @map("min_loyalty_score")
-  targetUserType   String?  @map("target_user_type") // VIP, FREQUENT, NEW, ALL
-  
+  conditions      String? // JSON con condiciones especiales
+  validityDays    Int     @default(30) @map("validity_days")
+  maxUsesPerMonth Int     @default(10) @map("max_uses_per_month")
+  maxUsesPerUser  Int     @default(1) @map("max_uses_per_user")
+  minLoyaltyScore Int     @default(0) @map("min_loyalty_score")
+  targetUserType  String? @map("target_user_type") // VIP, FREQUENT, NEW, ALL
+
   // Tratamientos aplicables
   applicableTreatments String? @map("applicable_treatments") // JSON array de IDs
-  excludedTreatments   String? @map("excluded_treatments")   // JSON array de IDs
-  
+  excludedTreatments   String? @map("excluded_treatments") // JSON array de IDs
+
   // Visual y marketing
-  iconName         String   @map("icon_name")
-  color            String?  // Color hex
-  imageUrl         String?  @map("image_url")
-  badge            String?  // Texto del badge (ej: "POPULAR", "NEW")
-  
+  iconName String  @map("icon_name")
+  color    String? // Color hex
+  imageUrl String? @map("image_url")
+  badge    String? // Texto del badge (ej: "POPULAR", "NEW")
+
   // Analytics y optimización
-  popularity       Float    @default(0) // Score basado en uso
-  conversionRate   Float    @default(0) @map("conversion_rate")
-  seasonality      String?  // JSON con datos estacionales
-  
+  popularity     Float   @default(0) // Score basado en uso
+  conversionRate Float   @default(0) @map("conversion_rate")
+  seasonality    String? // JSON con datos estacionales
+
   // Estados
-  isActive         Boolean  @default(true) @map("is_active")
-  isFeatured       Boolean  @default(false) @map("is_featured")
-  isLimited        Boolean  @default(false) @map("is_limited") // Oferta por tiempo limitado
-  
+  isActive   Boolean @default(true) @map("is_active")
+  isFeatured Boolean @default(false) @map("is_featured")
+  isLimited  Boolean @default(false) @map("is_limited") // Oferta por tiempo limitado
+
   // Configuración avanzada
-  autoAssign       Boolean  @default(false) @map("auto_assign") // Se asigna automáticamente
-  stackable        Boolean  @default(false) // Se puede combinar con otras ofertas
-  transferable     Boolean  @default(false) // Se puede regalar
-  
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
-  
+  autoAssign   Boolean @default(false) @map("auto_assign") // Se asigna automáticamente
+  stackable    Boolean @default(false) // Se puede combinar con otras ofertas
+  transferable Boolean @default(false) // Se puede regalar
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
   // Relaciones
-  clinic           Clinic @relation(fields: [clinicId], references: [id], onDelete: Cascade)
-  redemptions      RewardRedemption[]
-  
+  clinic      Clinic             @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  redemptions RewardRedemption[]
+
   @@index([clinicId, isActive], map: "idx_clinic_active_rewards")
   @@index([pointsCost, isActive], map: "idx_reward_cost")
   @@index([isFeatured, popularity], map: "idx_reward_featured")
@@ -887,38 +889,38 @@ model RewardTemplate {
 // 🎁 REWARD REDEMPTIONS - CANJE DE RECOMPENSAS
 // ============================================================================
 model RewardRedemption {
-  id               String   @id @default(cuid())
-  userId           String   @map("user_id")
-  templateId       String   @map("template_id")
-  appointmentId    String?  @map("appointment_id")
-  
+  id            String  @id @default(cuid())
+  userId        String  @map("user_id")
+  templateId    String  @map("template_id")
+  appointmentId String? @map("appointment_id")
+
   // Información del canje
-  code             String   @unique
-  status           String   @default("ACTIVE") // ACTIVE, USED, EXPIRED, CANCELLED, TRANSFERRED
-  pointsUsed       Int      @map("points_used")
-  discountAmount   Float?   @map("discount_amount")
-  
+  code           String @unique
+  status         String @default("ACTIVE") // ACTIVE, USED, EXPIRED, CANCELLED, TRANSFERRED
+  pointsUsed     Int    @map("points_used")
+  discountAmount Float? @map("discount_amount")
+
   // Validez y uso
-  expiresAt        DateTime @map("expires_at")
-  usedAt           DateTime? @map("used_at")
-  
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+
   // Transferencia (si aplica)
-  transferredTo    String?  @map("transferred_to") // userId del destinatario
-  transferredAt    DateTime? @map("transferred_at")
-  transferCode     String?  @map("transfer_code")
-  
+  transferredTo String?   @map("transferred_to") // userId del destinatario
+  transferredAt DateTime? @map("transferred_at")
+  transferCode  String?   @map("transfer_code")
+
   // Metadata
-  notes            String?
-  usageLocation    String?  @map("usage_location") // APP, WEB, IN_PERSON
-  
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
-  
+  notes         String?
+  usageLocation String? @map("usage_location") // APP, WEB, IN_PERSON
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
   // Relaciones
-  user             User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  template         RewardTemplate @relation(fields: [templateId], references: [id])
-  appointment      Appointment? @relation(fields: [appointmentId], references: [id])
-  
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  template    RewardTemplate @relation(fields: [templateId], references: [id])
+  appointment Appointment?   @relation(fields: [appointmentId], references: [id])
+
   @@index([userId, status], map: "idx_user_reward_redemptions")
   @@index([templateId], map: "idx_template_redemptions")
   @@index([expiresAt], map: "idx_reward_expiry")
@@ -930,32 +932,32 @@ model RewardRedemption {
 // 📊 REWARD ANALYTICS - ANÁLISIS DEL SISTEMA DE RECOMPENSAS
 // ============================================================================
 model RewardAnalytics {
-  id               String   @id @default(cuid())
-  templateId       String   @map("template_id")
-  userId           String   @map("user_id")
-  clinicId         String   @map("clinic_id")
-  
+  id         String @id @default(cuid())
+  templateId String @map("template_id")
+  userId     String @map("user_id")
+  clinicId   String @map("clinic_id")
+
   // Evento y contexto
-  eventType        String   @map("event_type") // VIEW, REDEEM, USE, EXPIRE, SHARE
-  metadata         String?  // JSON con datos adicionales
-  
+  eventType String  @map("event_type") // VIEW, REDEEM, USE, EXPIRE, SHARE
+  metadata  String? // JSON con datos adicionales
+
   // Información del usuario en el momento
-  userLoyaltyScore Int      @map("user_loyalty_score")
-  userTier         String   @map("user_tier") // BRONZE, SILVER, GOLD, DIAMOND
-  userTotalPoints  Int      @map("user_total_points")
-  userVipStatus    Boolean  @map("user_vip_status")
-  
+  userLoyaltyScore Int     @map("user_loyalty_score")
+  userTier         String  @map("user_tier") // BRONZE, SILVER, GOLD, DIAMOND
+  userTotalPoints  Int     @map("user_total_points")
+  userVipStatus    Boolean @map("user_vip_status")
+
   // Contexto temporal
-  dayOfWeek        Int      @map("day_of_week") // 1-7
-  hourOfDay        Int      @map("hour_of_day") // 0-23
-  isWeekend        Boolean  @map("is_weekend")
-  
+  dayOfWeek Int     @map("day_of_week") // 1-7
+  hourOfDay Int     @map("hour_of_day") // 0-23
+  isWeekend Boolean @map("is_weekend")
+
   // Datos de conversión
-  conversionValue  Float?   @map("conversion_value") // Valor monetario si aplica
-  sessionDuration  Int?     @map("session_duration") // Segundos en la app
-  
-  createdAt        DateTime @default(now()) @map("created_at")
-  
+  conversionValue Float? @map("conversion_value") // Valor monetario si aplica
+  sessionDuration Int?   @map("session_duration") // Segundos en la app
+
+  createdAt DateTime @default(now()) @map("created_at")
+
   @@index([templateId, eventType], map: "idx_template_analytics")
   @@index([userId, createdAt], map: "idx_user_analytics")
   @@index([clinicId, eventType], map: "idx_clinic_analytics")
@@ -967,44 +969,44 @@ model RewardAnalytics {
 // 📱 SISTEMA DE SESIONES Y SEGURIDAD
 // ============================================================================
 model UserSession {
-  id                String   @id @default(cuid())
-  userId            String?  @map("user_id")
-  professionalId    String?  @map("professional_id")
-  sessionType       String   @map("session_type") // USER, PROFESSIONAL, CLINIC_ADMIN
-  
+  id             String  @id @default(cuid())
+  userId         String? @map("user_id")
+  professionalId String? @map("professional_id")
+  sessionType    String  @map("session_type") // USER, PROFESSIONAL, CLINIC_ADMIN
+
   // Información de la sesión
-  token             String   @unique
-  refreshToken      String?  @map("refresh_token")
-  expiresAt         DateTime @map("expires_at")
-  
+  token        String   @unique
+  refreshToken String?  @map("refresh_token")
+  expiresAt    DateTime @map("expires_at")
+
   // Información del dispositivo
-  deviceId          String?  @map("device_id")
-  deviceType        String?  @map("device_type") // mobile, tablet, desktop
-  deviceName        String?  @map("device_name")
-  platform          String?  // ios, android, web
-  appVersion        String?  @map("app_version")
-  
+  deviceId   String? @map("device_id")
+  deviceType String? @map("device_type") // mobile, tablet, desktop
+  deviceName String? @map("device_name")
+  platform   String? // ios, android, web
+  appVersion String? @map("app_version")
+
   // Información de red
-  ipAddress         String?  @map("ip_address")
-  userAgent         String?  @map("user_agent")
-  location          String?  // JSON con datos de geolocalización
-  
+  ipAddress String? @map("ip_address")
+  userAgent String? @map("user_agent")
+  location  String? // JSON con datos de geolocalización
+
   // Estados
-  isActive          Boolean  @default(true) @map("is_active")
-  isRevoked         Boolean  @default(false) @map("is_revoked")
-  
+  isActive  Boolean @default(true) @map("is_active")
+  isRevoked Boolean @default(false) @map("is_revoked")
+
   // Actividad
-  lastActivity      DateTime @default(now()) @map("last_activity")
-  revokedAt         DateTime? @map("revoked_at")
-  revokedReason     String?  @map("revoked_reason")
-  
-  createdAt         DateTime @default(now()) @map("created_at")
-  updatedAt         DateTime @updatedAt @map("updated_at")
-  
+  lastActivity  DateTime  @default(now()) @map("last_activity")
+  revokedAt     DateTime? @map("revoked_at")
+  revokedReason String?   @map("revoked_reason")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
   // Relaciones
-  user              User? @relation(fields: [userId], references: [id], onDelete: Cascade)
-  professional      Professional? @relation(fields: [professionalId], references: [id], onDelete: Cascade)
-  
+  user         User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  professional Professional? @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+
   @@index([token], map: "idx_session_token")
   @@index([userId, isActive], map: "idx_user_sessions")
   @@index([professionalId, isActive], map: "idx_professional_sessions")
@@ -1016,36 +1018,36 @@ model UserSession {
 // 🛡️ AUDIT LOG - REGISTRO DE ACTIVIDADES
 // ============================================================================
 model AuditLog {
-  id                String   @id @default(cuid())
-  
+  id String @id @default(cuid())
+
   // Actor (quien realizó la acción)
-  userId            String?  @map("user_id")
-  professionalId    String?  @map("professional_id")
-  clinicId          String?  @map("clinic_id")
-  actorType         String   @map("actor_type") // USER, PROFESSIONAL, CLINIC_ADMIN, SYSTEM
-  
+  userId         String? @map("user_id")
+  professionalId String? @map("professional_id")
+  clinicId       String? @map("clinic_id")
+  actorType      String  @map("actor_type") // USER, PROFESSIONAL, CLINIC_ADMIN, SYSTEM
+
   // Acción realizada
-  action            String   // CREATE, UPDATE, DELETE, LOGIN, LOGOUT, etc.
-  resource          String   // USER, APPOINTMENT, PAYMENT, etc.
-  resourceId        String?  @map("resource_id")
-  
+  action     String // CREATE, UPDATE, DELETE, LOGIN, LOGOUT, etc.
+  resource   String // USER, APPOINTMENT, PAYMENT, etc.
+  resourceId String? @map("resource_id")
+
   // Detalles de la acción
-  description       String?
-  changes           String?  // JSON con cambios realizados
-  oldValues         String?  @map("old_values") // JSON con valores anteriores
-  newValues         String?  @map("new_values") // JSON con valores nuevos
-  
+  description String?
+  changes     String? // JSON con cambios realizados
+  oldValues   String? @map("old_values") // JSON con valores anteriores
+  newValues   String? @map("new_values") // JSON con valores nuevos
+
   // Contexto técnico
-  ipAddress         String?  @map("ip_address")
-  userAgent         String?  @map("user_agent")
-  platform          String?
-  
+  ipAddress String? @map("ip_address")
+  userAgent String? @map("user_agent")
+  platform  String?
+
   // Metadatos
-  severity          String   @default("INFO") // DEBUG, INFO, WARN, ERROR, CRITICAL
-  category          String?  // SECURITY, BUSINESS, SYSTEM
-  
-  createdAt         DateTime @default(now()) @map("created_at")
-  
+  severity String  @default("INFO") // DEBUG, INFO, WARN, ERROR, CRITICAL
+  category String? // SECURITY, BUSINESS, SYSTEM
+
+  createdAt DateTime @default(now()) @map("created_at")
+
   @@index([userId, action], map: "idx_audit_user_action")
   @@index([professionalId, action], map: "idx_audit_professional_action")
   @@index([clinicId, action], map: "idx_audit_clinic_action")

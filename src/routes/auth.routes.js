@@ -1,10 +1,11 @@
 // ============================================================================
-// src/routes/auth.routes.js - RUTAS COMPLETAS CON ADMIN LOGIN Y GOOGLE LOGIN ✅
+// src/routes/auth.routes.js - RUTAS COMPLETAS CON MULTI-CLÍNICA Y TODOS LOS TIPOS DE LOGIN ✅
 // ============================================================================
 const express = require('express');
 const { body } = require('express-validator');
 const { OAuth2Client } = require('google-auth-library');
 const jwt = require('jsonwebtoken');
+const bcrypt = require('bcrypt');
 const { PrismaClient } = require('@prisma/client');
 const AuthController = require('../controllers/auth.controller');
 const { asyncHandler } = require('../utils/asyncHandler');
@@ -43,7 +44,11 @@ const loginValidation = [
     .withMessage('Email inválido'),
   body('password')
     .isLength({ min: 1 })
-    .withMessage('Contraseña requerida')
+    .withMessage('Contraseña requerida'),
+  body('clinicSlug')
+    .optional()
+    .isLength({ min: 1 })
+    .withMessage('Slug de clínica inválido')
 ];
 
 const registerValidation = [
@@ -80,6 +85,11 @@ const registerValidation = [
     .isLength({ min: 6, max: 100 })
     .withMessage('La contraseña debe tener entre 6 y 100 caracteres'),
   
+  body('clinicSlug')
+    .optional()
+    .isLength({ min: 1 })
+    .withMessage('Slug de clínica requerido'),
+  
   body('notificationPreferences')
     .optional()
     .isObject()
@@ -93,7 +103,11 @@ const adminLoginValidation = [
     .withMessage('Email de administrador inválido'),
   body('password')
     .isLength({ min: 1 })
-    .withMessage('Contraseña de administrador requerida')
+    .withMessage('Contraseña de administrador requerida'),
+  body('clinicSlug')
+    .optional()
+    .isLength({ min: 1 })
+    .withMessage('Slug de clínica inválido')
 ];
 
 const googleLoginValidation = [
@@ -180,9 +194,11 @@ router.get('/health', (req, res) => {
     availableEndpoints: {
       public: [
         'POST /api/auth/login',
+        'POST /api/auth/patient/login',
+        'POST /api/auth/professional/login', 
+        'POST /api/auth/admin/login',
         'POST /api/auth/demo-login', 
         'POST /api/auth/register',
-        'POST /api/auth/admin-login',
         'POST /api/auth/google-login',
         'POST /api/auth/forgot-password',
         'POST /api/auth/verify-reset-token',
@@ -190,7 +206,8 @@ router.get('/health', (req, res) => {
         'POST /api/auth/reset-password',
         'POST /api/auth/refresh',
         'POST /api/auth/validate-email',
-        'POST /api/auth/check-availability'
+        'POST /api/auth/check-availability',
+        'GET /api/auth/clinics/active'
       ],
       protected: [
         'POST /api/auth/logout',
@@ -202,10 +219,54 @@ router.get('/health', (req, res) => {
 });
 
 // ========================================================================
+// ENDPOINT PARA OBTENER CLÍNICAS ACTIVAS
+// ========================================================================
+router.get('/clinics/active', async (req, res) => {
+  try {
+    const clinics = await prisma.clinic.findMany({
+      where: {
+        isActive: true
+      },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        city: true,
+        logoUrl: true,
+        address: true,
+        phone: true,
+        description: true
+      },
+      orderBy: {
+        name: 'asc'
+      }
+    });
+
+    console.log(`✅ Found ${clinics.length} active clinics`);
+
+    res.status(200).json({
+      success: true,
+      data: clinics,
+      message: `${clinics.length} clínicas activas encontradas`
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching active clinics:', error);
+    res.status(500).json({
+      success: false,
+      error: {
+        message: 'Error obteniendo clínicas',
+        code: 'CLINIC_FETCH_ERROR'
+      }
+    });
+  }
+});
+
+// ========================================================================
 // AUTENTICACIÓN PRINCIPAL
 // ========================================================================
 
-// Login normal
+// Login general (mantener para compatibilidad)
 router.post('/login', loginValidation, asyncHandler(AuthController.login));
 
 // Demo login (sin credenciales)
@@ -214,11 +275,432 @@ router.post('/demo-login', asyncHandler(AuthController.demoLogin));
 // Registro de usuario
 router.post('/register', registerValidation, asyncHandler(AuthController.register));
 
-// Admin login (credenciales especiales)
-router.post('/admin-login', adminLoginValidation, asyncHandler(AuthController.adminLogin));
+// ========================================================================
+// AUTENTICACIÓN POR TIPO DE USUARIO Y CLÍNICA
+// ========================================================================
+
+// Patient login con soporte para multi-clínica
+router.post('/patient/login', loginValidation, async (req, res) => {
+  try {
+    const { email, password, clinicSlug } = req.body;
+    
+    console.log(`🏃‍♀️ Patient login attempt for: ${email} at clinic: ${clinicSlug || 'any'}`);
+    
+    // Buscar usuario paciente
+    const user = await prisma.user.findFirst({
+      where: {
+        email: email.toLowerCase(),
+        role: 'user', // Los pacientes tienen role 'user'
+        isActive: true,
+        // Si se proporciona clinicSlug, filtrar por clínica
+        ...(clinicSlug && {
+          clinic: {
+            slug: clinicSlug
+          }
+        })
+      },
+      include: {
+        clinic: true,
+        userProfile: true,
+      }
+    });
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        error: {
+          message: clinicSlug ? 
+            'Usuario no encontrado en esta clínica' : 
+            'Usuario no encontrado',
+          code: 'USER_NOT_FOUND'
+        }
+      });
+    }
+
+    // Verificar contraseña
+    if (!user.password) {
+      return res.status(401).json({
+        success: false,
+        error: {
+          message: 'Usuario debe completar registro',
+          code: 'INCOMPLETE_REGISTRATION'
+        }
+      });
+    }
+
+    const isValidPassword = await bcrypt.compare(password, user.password);
+    
+    if (!isValidPassword) {
+      return res.status(401).json({
+        success: false,
+        error: {
+          message: 'Credenciales inválidas',
+          code: 'INVALID_CREDENTIALS'
+        }
+      });
+    }
+
+    // Actualizar último login
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { lastLogin: new Date() }
+    });
+
+    // Generar tokens
+    const tokenPayload = {
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+      clinicId: user.clinicId,
+      userType: 'patient'
+    };
+
+    const accessToken = jwt.sign(
+      tokenPayload,
+      process.env.JWT_SECRET,
+      { 
+        expiresIn: '24h',
+        issuer: 'clinica-estetica',
+        audience: 'mobile-app'
+      }
+    );
+
+    const refreshToken = jwt.sign(
+      { userId: user.id, type: 'refresh' },
+      process.env.JWT_REFRESH_SECRET,
+      { 
+        expiresIn: '30d',
+        issuer: 'clinica-estetica'
+      }
+    );
+
+    console.log(`✅ Patient login successful for: ${user.email}`);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        user: {
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          name: `${user.firstName} ${user.lastName}`,
+          phone: user.phone,
+          role: user.role,
+          profilePicture: user.profilePicture,
+          isEmailVerified: user.isEmailVerified,
+          registrationDate: user.registrationDate,
+          lastLogin: user.lastLogin,
+          clinic: user.clinic,
+          profile: user.userProfile
+        },
+        tokens: {
+          accessToken,
+          refreshToken,
+          tokenType: 'Bearer',
+          expiresIn: '24h'
+        },
+        userType: 'patient'
+      },
+      message: 'Login de paciente exitoso'
+    });
+
+  } catch (error) {
+    console.error('❌ Patient login error:', error);
+    res.status(500).json({
+      success: false,
+      error: {
+        message: 'Error interno del servidor',
+        code: 'INTERNAL_ERROR'
+      }
+    });
+  }
+});
+
+// Professional login con soporte para multi-clínica
+router.post('/professional/login', loginValidation, async (req, res) => {
+  try {
+    const { email, password, clinicSlug } = req.body;
+    
+    console.log(`👨‍⚕️ Professional login attempt for: ${email} at clinic: ${clinicSlug || 'any'}`);
+    
+    // Buscar profesional
+    const professional = await prisma.professional.findFirst({
+      where: {
+        email: email.toLowerCase(),
+        isActive: true,
+        // Si se proporciona clinicSlug, filtrar por clínica
+        ...(clinicSlug && {
+          clinic: {
+            slug: clinicSlug
+          }
+        })
+      },
+      include: {
+        clinic: true,
+        specialties: true,
+        schedule: true
+      }
+    });
+
+    if (!professional) {
+      return res.status(401).json({
+        success: false,
+        error: {
+          message: clinicSlug ? 
+            'Profesional no encontrado en esta clínica' : 
+            'Profesional no encontrado',
+          code: 'PROFESSIONAL_NOT_FOUND'
+        }
+      });
+    }
+
+    // Verificar contraseña
+    if (!professional.password) {
+      return res.status(401).json({
+        success: false,
+        error: {
+          message: 'Profesional debe completar registro',
+          code: 'INCOMPLETE_REGISTRATION'
+        }
+      });
+    }
+
+    const isValidPassword = await bcrypt.compare(password, professional.password);
+    
+    if (!isValidPassword) {
+      return res.status(401).json({
+        success: false,
+        error: {
+          message: 'Credenciales inválidas',
+          code: 'INVALID_CREDENTIALS'
+        }
+      });
+    }
+
+    // Actualizar último login
+    await prisma.professional.update({
+      where: { id: professional.id },
+      data: { lastLogin: new Date() }
+    });
+
+    // Generar tokens
+    const tokenPayload = {
+      professionalId: professional.id,
+      email: professional.email,
+      role: 'professional',
+      clinicId: professional.clinicId,
+      userType: 'professional'
+    };
+
+    const accessToken = jwt.sign(
+      tokenPayload,
+      process.env.JWT_SECRET,
+      { 
+        expiresIn: '24h',
+        issuer: 'clinica-estetica',
+        audience: 'mobile-app'
+      }
+    );
+
+    const refreshToken = jwt.sign(
+      { professionalId: professional.id, type: 'refresh' },
+      process.env.JWT_REFRESH_SECRET,
+      { 
+        expiresIn: '30d',
+        issuer: 'clinica-estetica'
+      }
+    );
+
+    console.log(`✅ Professional login successful for: ${professional.email}`);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        professional: {
+          id: professional.id,
+          email: professional.email,
+          firstName: professional.firstName,
+          lastName: professional.lastName,
+          name: `${professional.firstName} ${professional.lastName}`,
+          phone: professional.phone,
+          role: 'professional',
+          profilePicture: professional.profilePicture,
+          license: professional.license,
+          specialization: professional.specialization,
+          registrationDate: professional.registrationDate,
+          lastLogin: professional.lastLogin,
+          clinic: professional.clinic,
+          specialties: professional.specialties,
+          schedule: professional.schedule
+        },
+        tokens: {
+          accessToken,
+          refreshToken,
+          tokenType: 'Bearer',
+          expiresIn: '24h'
+        },
+        userType: 'professional'
+      },
+      message: 'Login de profesional exitoso'
+    });
+
+  } catch (error) {
+    console.error('❌ Professional login error:', error);
+    res.status(500).json({
+      success: false,
+      error: {
+        message: 'Error interno del servidor',
+        code: 'INTERNAL_ERROR'
+      }
+    });
+  }
+});
+
+// Admin login actualizado con soporte para multi-clínica
+router.post('/admin/login', adminLoginValidation, async (req, res) => {
+  try {
+    const { email, password, clinicSlug } = req.body;
+    
+    console.log(`👑 Admin login attempt for: ${email} at clinic: ${clinicSlug || 'any'}`);
+    
+    // Buscar administrador
+    const admin = await prisma.admin.findFirst({
+      where: {
+        email: email.toLowerCase(),
+        isActive: true,
+        // Si se proporciona clinicSlug, filtrar por clínica
+        ...(clinicSlug && {
+          clinic: {
+            slug: clinicSlug
+          }
+        })
+      },
+      include: {
+        clinic: true,
+      }
+    });
+
+    if (!admin) {
+      return res.status(401).json({
+        success: false,
+        error: {
+          message: clinicSlug ? 
+            'Administrador no encontrado en esta clínica' : 
+            'Administrador no encontrado',
+          code: 'ADMIN_NOT_FOUND'
+        }
+      });
+    }
+
+    // Verificar contraseña
+    if (!admin.password) {
+      return res.status(401).json({
+        success: false,
+        error: {
+          message: 'Administrador debe completar registro',
+          code: 'INCOMPLETE_REGISTRATION'
+        }
+      });
+    }
+
+    const isValidPassword = await bcrypt.compare(password, admin.password);
+    
+    if (!isValidPassword) {
+      return res.status(401).json({
+        success: false,
+        error: {
+          message: 'Credenciales inválidas',
+          code: 'INVALID_CREDENTIALS'
+        }
+      });
+    }
+
+    // Actualizar último login
+    await prisma.admin.update({
+      where: { id: admin.id },
+      data: { lastLogin: new Date() }
+    });
+
+    // Generar tokens
+    const tokenPayload = {
+      adminId: admin.id,
+      email: admin.email,
+      role: 'admin',
+      clinicId: admin.clinicId,
+      userType: 'admin'
+    };
+
+    const accessToken = jwt.sign(
+      tokenPayload,
+      process.env.JWT_SECRET,
+      { 
+        expiresIn: '24h',
+        issuer: 'clinica-estetica',
+        audience: 'mobile-app'
+      }
+    );
+
+    const refreshToken = jwt.sign(
+      { adminId: admin.id, type: 'refresh' },
+      process.env.JWT_REFRESH_SECRET,
+      { 
+        expiresIn: '30d',
+        issuer: 'clinica-estetica'
+      }
+    );
+
+    console.log(`✅ Admin login successful for: ${admin.email}`);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        admin: {
+          id: admin.id,
+          email: admin.email,
+          firstName: admin.firstName,
+          lastName: admin.lastName,
+          name: admin.name || `${admin.firstName} ${admin.lastName}`,
+          phone: admin.phone,
+          role: 'admin',
+          profilePicture: admin.profilePicture,
+          permissions: admin.permissions,
+          registrationDate: admin.registrationDate,
+          lastLogin: admin.lastLogin,
+          clinic: admin.clinic
+        },
+        tokens: {
+          accessToken,
+          refreshToken,
+          tokenType: 'Bearer',
+          expiresIn: '24h'
+        },
+        userType: 'admin'
+      },
+      message: 'Login de administrador exitoso'
+    });
+
+  } catch (error) {
+    console.error('❌ Admin login error:', error);
+    res.status(500).json({
+      success: false,
+      error: {
+        message: 'Error interno del servidor',
+        code: 'INTERNAL_ERROR'
+      }
+    });
+  }
+});
+
+// Mantener admin-login para compatibilidad
+router.post('/admin-login', adminLoginValidation, async (req, res) => {
+  // Redirigir a /admin/login
+  req.url = '/admin/login';
+  return router.handle(req, res);
+});
 
 // ============================================================================
-// GOOGLE LOGIN - NUEVA FUNCIONALIDAD
+// GOOGLE LOGIN - FUNCIONALIDAD COMPLETA
 // ============================================================================
 router.post('/google-login', googleLoginValidation, async (req, res) => {
   try {
@@ -233,7 +715,8 @@ router.post('/google-login', googleLoginValidation, async (req, res) => {
       googleAccessToken,
       googleIdToken,
       authProvider,
-      platform
+      platform,
+      clinicSlug
     } = req.body;
 
     console.log('🔐 Google login attempt for:', email);
@@ -275,6 +758,23 @@ router.post('/google-login', googleLoginValidation, async (req, res) => {
 
     // ✅ 2. BUSCAR O CREAR USUARIO
     let user;
+    let clinic = null;
+    
+    // Si se especifica clinicSlug, buscar la clínica
+    if (clinicSlug) {
+      clinic = await prisma.clinic.findUnique({
+        where: { slug: clinicSlug }
+      });
+      if (!clinic) {
+        return res.status(404).json({
+          success: false,
+          error: {
+            message: 'Clínica no encontrada',
+            code: 'CLINIC_NOT_FOUND'
+          }
+        });
+      }
+    }
     
     try {
       // 2a. Buscar usuario existente por email
@@ -298,6 +798,8 @@ router.post('/google-login', googleLoginValidation, async (req, res) => {
             // Actualizar nombre si no tenía
             firstName: user.firstName || firstName,
             lastName: user.lastName || lastName,
+            // Asociar a clínica si se especificó
+            ...(clinic && !user.clinicId && { clinicId: clinic.id })
           },
           include: {
             clinic: true,
@@ -319,6 +821,8 @@ router.post('/google-login', googleLoginValidation, async (req, res) => {
             isEmailVerified: verified_email || true,
             registrationDate: new Date(),
             lastLogin: new Date(),
+            // Asociar a clínica si se especificó
+            clinicId: clinic?.id || null,
             // Campos requeridos
             phone: null, // Se puede actualizar después
             skinType: null,
@@ -332,7 +836,7 @@ router.post('/google-login', googleLoginValidation, async (req, res) => {
 
         console.log('✅ Nuevo usuario creado:', user.email);
 
-        // Opcional: Crear perfil inicial
+        // Crear perfil inicial
         await prisma.userProfile.create({
           data: {
             userId: user.id,
@@ -364,8 +868,10 @@ router.post('/google-login', googleLoginValidation, async (req, res) => {
       userId: user.id,
       email: user.email,
       role: user.role,
+      clinicId: user.clinicId,
       authProvider: 'google',
       isEmailVerified: user.isEmailVerified,
+      userType: 'patient'
     };
 
     const accessToken = jwt.sign(
@@ -405,6 +911,8 @@ router.post('/google-login', googleLoginValidation, async (req, res) => {
         clinic: user.clinic ? {
           id: user.clinic.id,
           name: user.clinic.name,
+          slug: user.clinic.slug,
+          city: user.clinic.city
         } : null,
       },
       tokens: {
@@ -414,6 +922,7 @@ router.post('/google-login', googleLoginValidation, async (req, res) => {
         expiresIn: '24h',
       },
       authProvider: 'google',
+      userType: 'patient'
     };
 
     // ✅ 5. LOG DE ÉXITO Y RESPUESTA
@@ -489,6 +998,229 @@ router.get('/validate-session', verifyToken, asyncHandler(AuthController.validat
 router.put('/change-password', verifyToken, changePasswordValidation, asyncHandler(AuthController.changePassword));
 
 // ========================================================================
+// ENDPOINTS ADICIONALES PARA COMPATIBILIDAD Y DESARROLLO
+// ========================================================================
+
+// Obtener información del usuario actual
+router.get('/me', verifyToken, async (req, res) => {
+  try {
+    const { userId, professionalId, adminId } = req.user;
+    
+    let userData = null;
+    let userType = 'unknown';
+
+    if (userId) {
+      // Es un paciente/usuario
+      userData = await prisma.user.findUnique({
+        where: { id: userId },
+        include: {
+          clinic: true,
+          userProfile: true
+        }
+      });
+      userType = 'patient';
+    } else if (professionalId) {
+      // Es un profesional
+      userData = await prisma.professional.findUnique({
+        where: { id: professionalId },
+        include: {
+          clinic: true,
+          specialties: true
+        }
+      });
+      userType = 'professional';
+    } else if (adminId) {
+      // Es un administrador
+      userData = await prisma.admin.findUnique({
+        where: { id: adminId },
+        include: {
+          clinic: true
+        }
+      });
+      userType = 'admin';
+    }
+
+    if (!userData) {
+      return res.status(404).json({
+        success: false,
+        error: {
+          message: 'Usuario no encontrado',
+          code: 'USER_NOT_FOUND'
+        }
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        user: userData,
+        userType,
+        authenticated: true
+      },
+      message: 'Información de usuario obtenida exitosamente'
+    });
+
+  } catch (error) {
+    console.error('❌ Error getting user info:', error);
+    res.status(500).json({
+      success: false,
+      error: {
+        message: 'Error interno del servidor',
+        code: 'INTERNAL_ERROR'
+      }
+    });
+  }
+});
+
+// Estadísticas de autenticación (para desarrollo/debug)
+router.get('/stats', async (req, res) => {
+  try {
+    if (process.env.NODE_ENV !== 'development') {
+      return res.status(403).json({
+        success: false,
+        error: {
+          message: 'Endpoint solo disponible en desarrollo',
+          code: 'FORBIDDEN'
+        }
+      });
+    }
+
+    const stats = await Promise.all([
+      prisma.user.count({ where: { isActive: true } }),
+      prisma.professional.count({ where: { isActive: true } }),
+      prisma.admin.count({ where: { isActive: true } }),
+      prisma.clinic.count({ where: { isActive: true } }),
+      prisma.user.count({ where: { authProvider: 'google' } }),
+      prisma.user.count({ where: { isEmailVerified: true } })
+    ]);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        patients: stats[0],
+        professionals: stats[1],
+        admins: stats[2],
+        clinics: stats[3],
+        googleUsers: stats[4],
+        verifiedEmails: stats[5],
+        totalUsers: stats[0] + stats[1] + stats[2]
+      },
+      message: 'Estadísticas de autenticación'
+    });
+
+  } catch (error) {
+    console.error('❌ Error getting auth stats:', error);
+    res.status(500).json({
+      success: false,
+      error: {
+        message: 'Error obteniendo estadísticas',
+        code: 'STATS_ERROR'
+      }
+    });
+  }
+});
+
+// Endpoint para obtener clínicas por ciudad
+router.get('/clinics/by-city/:city', async (req, res) => {
+  try {
+    const { city } = req.params;
+    
+    const clinics = await prisma.clinic.findMany({
+      where: {
+        city: {
+          contains: city,
+          mode: 'insensitive'
+        },
+        isActive: true
+      },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        city: true,
+        logoUrl: true,
+        address: true,
+        phone: true,
+        description: true
+      },
+      orderBy: {
+        name: 'asc'
+      }
+    });
+
+    res.status(200).json({
+      success: true,
+      data: clinics,
+      message: `${clinics.length} clínicas encontradas en ${city}`
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching clinics by city:', error);
+    res.status(500).json({
+      success: false,
+      error: {
+        message: 'Error obteniendo clínicas por ciudad',
+        code: 'CLINIC_CITY_ERROR'
+      }
+    });
+  }
+});
+
+// Endpoint para validar slug de clínica
+router.get('/clinics/validate-slug/:slug', async (req, res) => {
+  try {
+    const { slug } = req.params;
+    
+    const clinic = await prisma.clinic.findUnique({
+      where: { slug },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        city: true,
+        isActive: true
+      }
+    });
+
+    if (!clinic) {
+      return res.status(404).json({
+        success: false,
+        error: {
+          message: 'Clínica no encontrada',
+          code: 'CLINIC_NOT_FOUND'
+        }
+      });
+    }
+
+    if (!clinic.isActive) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          message: 'Clínica no activa',
+          code: 'CLINIC_INACTIVE'
+        }
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: clinic,
+      message: 'Slug de clínica válido'
+    });
+
+  } catch (error) {
+    console.error('❌ Error validating clinic slug:', error);
+    res.status(500).json({
+      success: false,
+      error: {
+        message: 'Error validando slug de clínica',
+        code: 'SLUG_VALIDATION_ERROR'
+      }
+    });
+  }
+});
+
+// ========================================================================
 // MIDDLEWARE DE MANEJO DE ERRORES ESPECÍFICO PARA AUTH
 // ========================================================================
 router.use((error, req, res, next) => {
@@ -501,7 +1233,21 @@ router.use((error, req, res, next) => {
       error: {
         message: 'Datos de entrada inválidos',
         details: error.details || error.message,
-        field: error.field || null
+        field: error.field || null,
+        code: 'VALIDATION_ERROR'
+      }
+    });
+  }
+  
+  // Errores de express-validator
+  if (error.array && typeof error.array === 'function') {
+    const validationErrors = error.array();
+    return res.status(400).json({
+      success: false,
+      error: {
+        message: 'Errores de validación',
+        details: validationErrors,
+        code: 'VALIDATION_ERROR'
       }
     });
   }
@@ -527,6 +1273,59 @@ router.use((error, req, res, next) => {
       }
     });
   }
+
+  // Errores de JWT
+  if (error.name === 'JsonWebTokenError') {
+    return res.status(401).json({
+      success: false,
+      error: {
+        message: 'Token inválido',
+        code: 'INVALID_TOKEN'
+      }
+    });
+  }
+
+  if (error.name === 'TokenExpiredError') {
+    return res.status(401).json({
+      success: false,
+      error: {
+        message: 'Token expirado',
+        code: 'TOKEN_EXPIRED'
+      }
+    });
+  }
+
+  // Errores de Prisma
+  if (error.code === 'P2002') {
+    return res.status(409).json({
+      success: false,
+      error: {
+        message: 'Ya existe un registro con estos datos',
+        code: 'DUPLICATE_ENTRY'
+      }
+    });
+  }
+
+  if (error.code === 'P2025') {
+    return res.status(404).json({
+      success: false,
+      error: {
+        message: 'Registro no encontrado',
+        code: 'RECORD_NOT_FOUND'
+      }
+    });
+  }
+
+  // Errores de conexión a base de datos
+  if (error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND') {
+    return res.status(503).json({
+      success: false,
+      error: {
+        message: 'Error de conexión a la base de datos',
+        code: 'DATABASE_CONNECTION_ERROR'
+      }
+    });
+  }
   
   // Error genérico
   res.status(error.status || 500).json({
@@ -534,7 +1333,36 @@ router.use((error, req, res, next) => {
     error: {
       message: error.message || 'Error interno del servidor',
       code: error.code || 'INTERNAL_ERROR',
-      ...(process.env.NODE_ENV === 'development' && { stack: error.stack })
+      ...(process.env.NODE_ENV === 'development' && { 
+        stack: error.stack,
+        details: error
+      })
+    }
+  });
+});
+
+// ========================================================================
+// MANEJADOR DE RUTAS NO ENCONTRADAS
+// ========================================================================
+router.use('*', (req, res) => {
+  res.status(404).json({
+    success: false,
+    error: {
+      message: `Ruta de autenticación no encontrada: ${req.method} ${req.originalUrl}`,
+      code: 'ROUTE_NOT_FOUND',
+      availableRoutes: [
+        'POST /api/auth/login',
+        'POST /api/auth/patient/login',
+        'POST /api/auth/professional/login',
+        'POST /api/auth/admin/login',
+        'POST /api/auth/register',
+        'POST /api/auth/google-login',
+        'POST /api/auth/forgot-password',
+        'POST /api/auth/reset-password',
+        'POST /api/auth/refresh',
+        'GET /api/auth/clinics/active',
+        'GET /api/auth/health'
+      ]
     }
   });
 });
