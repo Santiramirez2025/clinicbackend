@@ -141,14 +141,14 @@ router.post('/patient/login', loginValidation, async (req, res) => {
     }
 
     // Verificar contraseña
-    if (!user.password) {
+    if (!user.passwordHash) {
       return res.status(401).json({
         success: false,
         error: { message: 'Usuario debe completar registro', code: 'INCOMPLETE_REGISTRATION' }
       });
     }
 
-    const isValidPassword = await bcrypt.compare(password, user.password);
+    const isValidPassword = await bcrypt.compare(password, user.passwordHash);
     if (!isValidPassword) {
       return res.status(401).json({
         success: false,
@@ -241,7 +241,7 @@ router.post('/professional/login', loginValidation, async (req, res) => {
       });
     }
 
-    if (!professional.password || !await bcrypt.compare(password, professional.password)) {
+    if (!professional.passwordHash || !await bcrypt.compare(password, professional.passwordHash)) {
       return res.status(401).json({
         success: false,
         error: { message: 'Credenciales inválidas', code: 'INVALID_CREDENTIALS' }
@@ -323,7 +323,7 @@ router.post('/admin/login', loginValidation, async (req, res) => {
       });
     }
 
-    if (!admin.password || !await bcrypt.compare(password, admin.password)) {
+    if (!admin.passwordHash || !await bcrypt.compare(password, admin.passwordHash)) {
       return res.status(401).json({
         success: false,
         error: { message: 'Credenciales inválidas', code: 'INVALID_CREDENTIALS' }
