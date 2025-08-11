@@ -54,7 +54,17 @@ router.get('/health', (req, res) => {
   res.status(200).json({
     success: true,
     message: 'Auth routes working correctly',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development',
+    availableEndpoints: [
+      'POST /api/auth/demo-login',
+      'POST /api/auth/patient/login',
+      'POST /api/auth/professional/login', 
+      'POST /api/auth/admin/login',
+      'POST /api/auth/register',
+      'POST /api/auth/refresh',
+      'GET /api/auth/clinics/active'
+    ]
   });
 });
 
@@ -361,6 +371,81 @@ router.post('/admin/login', loginValidation, async (req, res) => {
     res.status(500).json({
       success: false,
       error: { message: 'Error interno del servidor', code: 'INTERNAL_ERROR' }
+    });
+  }
+});
+
+// ========================================================================
+// DEMO LOGIN (SIN CREDENCIALES)
+// ========================================================================
+router.post('/demo-login', async (req, res) => {
+  try {
+    console.log('🧪 Demo login request');
+    
+    // Usuario demo predefinido
+    const demoUser = {
+      id: 'demo-user-123',
+      email: 'demo@bellezaestetica.com',
+      firstName: 'Demo',
+      lastName: 'User',
+      role: 'patient',
+      clinicId: 'madrid-centro',
+      isActive: true,
+      registrationDate: new Date('2024-01-15'),
+      lastLogin: new Date()
+    };
+
+    // Generar tokens
+    const tokenPayload = {
+      userId: demoUser.id,
+      email: demoUser.email,
+      role: 'patient',
+      clinicId: demoUser.clinicId,
+      userType: 'patient'
+    };
+
+    const { accessToken, refreshToken } = generateTokens(tokenPayload);
+
+    console.log('✅ Demo login successful');
+
+    res.status(200).json({
+      success: true,
+      data: {
+        user: {
+          id: demoUser.id,
+          email: demoUser.email,
+          firstName: demoUser.firstName,
+          lastName: demoUser.lastName,
+          name: `${demoUser.firstName} ${demoUser.lastName}`,
+          phone: '+34 123 456 789',
+          role: 'patient',
+          profilePicture: null,
+          isEmailVerified: true,
+          registrationDate: demoUser.registrationDate,
+          lastLogin: demoUser.lastLogin,
+          clinic: {
+            id: 'madrid-centro',
+            name: 'Clínica Madrid Centro',
+            slug: 'madrid-centro',
+            city: 'Madrid'
+          }
+        },
+        tokens: {
+          accessToken,
+          refreshToken,
+          tokenType: 'Bearer',
+          expiresIn: '24h'
+        },
+        userType: 'patient'
+      },
+      message: 'Demo login exitoso'
+    });
+
+  } catch (error) {
+    console.error('❌ Demo login error:', error);
+    res.status(500).json({
+      success: false,
+      error: { message: 'Error en demo login', code: 'DEMO_LOGIN_ERROR' }
     });
   }
 });
