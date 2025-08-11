@@ -1,356 +1,250 @@
-// ============================================================================
-// src/middleware/auth.middleware.js - MIDDLEWARE UNIFICADO FINAL ✅
-// ============================================================================
 const jwt = require('jsonwebtoken');
 const { PrismaClient } = require('@prisma/client');
-const { AppError } = require('../utils/errors');
 
 const prisma = new PrismaClient();
 
 // ============================================================================
-// 🔍 FUNCIÓN HELPER PARA IDENTIFICAR TIPO DE TOKEN
-// ============================================================================
-const identifyTokenType = (decoded) => {
-  // 1. Token de Admin/Clínica
-  if (decoded.role === 'admin' || decoded.clinicId) {
-    return 'admin';
-  }
-  
-  // 2. Token de Usuario Demo
-  if (decoded.userId === 'demo-user-123' || decoded.isDemo) {
-    return 'demo';
-  }
-  
-  // 3. Token de Usuario Normal
-  if (decoded.userId) {
-    return 'user';
-  }
-  
-  return 'unknown';
-};
-
-// ============================================================================
-// 🔐 VERIFICAR TOKEN GENERAL (PARA USUARIOS NORMALES)
+// FUNCIÓN PRINCIPAL DE VERIFICACIÓN DE TOKEN
 // ============================================================================
 const verifyToken = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
     
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      throw new AppError('Token de acceso requerido', 401);
+      return res.status(401).json({
+        success: false,
+        error: { message: 'Token de acceso requerido', code: 'NO_TOKEN' }
+      });
     }
 
     const token = authHeader.split(' ')[1];
     
     if (!token) {
-      throw new AppError('Token de acceso requerido', 401);
+      return res.status(401).json({
+        success: false,
+        error: { message: 'Token de acceso requerido', code: 'NO_TOKEN' }
+      });
     }
 
-    // Verificar token JWT
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'default-secret-key');
-    const tokenType = identifyTokenType(decoded);
+    // Verificar y decodificar token
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
     
-    console.log(`🔍 Token type: ${tokenType}`, { userId: decoded.userId, role: decoded.role });
+    console.log('🔍 Token decoded:', { 
+      userId: decoded.userId, 
+      professionalId: decoded.professionalId,
+      adminId: decoded.adminId,
+      role: decoded.role,
+      userType: decoded.userType 
+    });
 
-    // MANEJAR SEGÚN TIPO DE TOKEN
-    switch (tokenType) {
-      case 'admin':
-        // Token de administrador - buscar por email o crear clínica por defecto
-        let clinic = null;
-        
-        // 1. Intentar buscar por clinicId si existe
-        if (decoded.clinicId) {
-          clinic = await prisma.clinic.findUnique({
-            where: { id: decoded.clinicId },
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              subscriptionPlan: true
-            }
-          });
-        }
-        
-        // 2. Si no existe, buscar por email
-        if (!clinic && decoded.email) {
-          clinic = await prisma.clinic.findUnique({
-            where: { email: decoded.email },
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              subscriptionPlan: true
-            }
-          });
-        }
-        
-        // 3. Si aún no existe, crear clínica por defecto
-        if (!clinic) {
-          console.log('🏥 Creando clínica por defecto para admin token...');
-          const adminEmail = decoded.email || 'admin@bellezaestetica.com';
-          
-          try {
-            clinic = await prisma.clinic.create({
-              data: {
-                name: 'Belleza Estética Premium',
-                email: adminEmail,
-                subscriptionPlan: 'PREMIUM',
-                subscriptionExpiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-                settings: JSON.stringify({
-                  timezone: 'Europe/Madrid',
-                  currency: 'EUR',
-                  language: 'es'
-                })
-              },
-              select: {
-                id: true,
-                name: true,
-                email: true,
-                subscriptionPlan: true
-              }
-            });
-            console.log('✅ Clínica creada para admin token:', clinic.name);
-          } catch (createError) {
-            console.error('❌ Error creando clínica para admin token:', createError);
-            throw new AppError('Error configurando clínica de administrador', 500);
-          }
-        }
+    // MANEJAR SEGÚN TIPO DE USUARIO EN EL TOKEN
+    let userData = null;
 
-        if (!clinic) {
-          throw new AppError('No se pudo configurar la clínica de administrador', 401);
-        }
-
-        req.user = {
-          id: clinic.id,
-          userId: clinic.id,
-          email: clinic.email,
-          firstName: 'Admin',
-          lastName: clinic.name,
-          vipStatus: true,
-          role: 'admin',
-          clinic: clinic
-        };
-        req.clinic = clinic;
-        break;
-
-      case 'demo':
-        // Token demo
-        req.user = {
+    if (decoded.userId) {
+      // TOKEN DE PACIENTE/USUARIO
+      if (decoded.userId === 'demo-user-123') {
+        // Usuario demo
+        userData = {
           id: 'demo-user-123',
           userId: 'demo-user-123',
           email: 'demo@bellezaestetica.com',
-          firstName: 'María',
-          lastName: 'Demo',
+          firstName: 'Demo',
+          lastName: 'User',
+          name: 'Demo User',
+          role: 'patient',
+          userType: 'patient',
+          beautyPoints: 1250,
           vipStatus: true,
-          role: 'demo'
+          isDemo: true
         };
-        break;
+      } else {
+        // Usuario real - buscar en BD
+        try {
+          const user = await prisma.user.findUnique({
+            where: { id: decoded.userId },
+            include: {
+              clinic: {
+                select: { id: true, name: true, slug: true, city: true }
+              },
+              userProfile: {
+                select: { beautyPoints: true, isVip: true, totalSessions: true }
+              }
+            }
+          });
 
-      case 'user':
-        // Token de usuario normal - CAMPO 'role' REMOVIDO ❌ -> ✅
-        const user = await prisma.user.findUnique({
-          where: { id: decoded.userId },
-          select: {
-            id: true,
-            email: true,
-            firstName: true,
-            lastName: true,
-            vipStatus: true,
-            beautyPoints: true,
-            sessionsCompleted: true
+          if (!user) {
+            return res.status(401).json({
+              success: false,
+              error: { message: 'Usuario no encontrado', code: 'USER_NOT_FOUND' }
+            });
           }
-        });
 
-        if (!user) {
-          throw new AppError('Usuario no encontrado', 401);
+          if (!user.isActive) {
+            return res.status(401).json({
+              success: false,
+              error: { message: 'Usuario inactivo', code: 'USER_INACTIVE' }
+            });
+          }
+
+          userData = {
+            id: user.id,
+            userId: user.id,
+            email: user.email,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            name: `${user.firstName} ${user.lastName}`,
+            phone: user.phone,
+            role: user.role || 'patient',
+            userType: 'patient',
+            profilePicture: user.profilePicture,
+            beautyPoints: user.userProfile?.beautyPoints || 0,
+            vipStatus: user.userProfile?.isVip || false,
+            totalSessions: user.userProfile?.totalSessions || 0,
+            clinic: user.clinic,
+            clinicId: user.clinicId
+          };
+        } catch (dbError) {
+          console.error('❌ Error fetching user:', dbError);
+          return res.status(500).json({
+            success: false,
+            error: { message: 'Error interno del servidor', code: 'DATABASE_ERROR' }
+          });
         }
-
-        req.user = {
-          ...user,
-          userId: user.id,
-          role: 'patient' // Asignar rol por defecto
-        };
-        break;
-
-      default:
-        throw new AppError('Tipo de token no reconocido', 401);
-    }
-
-    console.log(`✅ Auth success: ${req.user.firstName} ${req.user.lastName} (${req.user.role})`);
-    next();
-
-  } catch (error) {
-    console.error('❌ Error en verifyToken:', error.message);
-    
-    if (error.name === 'JsonWebTokenError') {
-      return next(new AppError('Token inválido', 401));
-    }
-    if (error.name === 'TokenExpiredError') {
-      return next(new AppError('Token expirado', 401));
-    }
-    next(error);
-  }
-};
-
-// ============================================================================
-// 👑 AUTENTICAR ADMIN (ESPECÍFICO PARA RUTAS ADMIN)
-// ============================================================================
-const authenticateAdmin = async (req, res, next) => {
-  try {
-    const authHeader = req.headers.authorization;
-    
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({
-        success: false,
-        error: { message: 'Token de administrador requerido' }
-      });
-    }
-
-    const token = authHeader.split(' ')[1];
-    
-    if (!token) {
-      return res.status(401).json({
-        success: false,
-        error: { message: 'Token de administrador requerido' }
-      });
-    }
-
-    // Verificar token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'default-secret-key');
-    
-    console.log('👑 Admin token decoded:', { 
-      role: decoded.role, 
-      clinicId: decoded.clinicId, 
-      email: decoded.email 
-    });
-    
-    // ✅ VALIDAR QUE ES TOKEN DE ADMIN
-    const isValidAdmin = decoded.role === 'admin' || decoded.clinicId;
-    
-    if (!isValidAdmin) {
-      return res.status(403).json({
-        success: false,
-        error: { message: 'Token de administrador inválido' }
-      });
-    }
-    
-    // ✅ BUSCAR O CREAR CLÍNICA AUTOMÁTICAMENTE
-    let clinic = null;
-    
-    // 1. Buscar clínica existente
-    if (decoded.clinicId) {
-      clinic = await prisma.clinic.findUnique({
-        where: { id: decoded.clinicId },
-        select: {
-          id: true,
-          name: true,
-          email: true,
-          subscriptionPlan: true,
-          subscriptionExpiresAt: true
-        }
-      });
-    }
-    
-    // 2. Si no existe, buscar por email del token
-    if (!clinic && decoded.email) {
-      clinic = await prisma.clinic.findUnique({
-        where: { email: decoded.email },
-        select: {
-          id: true,
-          name: true,
-          email: true,
-          subscriptionPlan: true,
-          subscriptionExpiresAt: true
-        }
-      });
-    }
-    
-    // 3. Si aún no existe, crear clínica por defecto para admin
-    if (!clinic) {
-      console.log('🏥 Creando clínica por defecto para admin...');
-      
-      const adminEmail = decoded.email || 'admin@bellezaestetica.com';
-      
+      }
+    } 
+    else if (decoded.professionalId) {
+      // TOKEN DE PROFESIONAL
       try {
-        clinic = await prisma.clinic.create({
-          data: {
-            name: 'Belleza Estética Premium',
-            email: adminEmail,
-            subscriptionPlan: 'PREMIUM',
-            subscriptionExpiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 1 año
-            settings: JSON.stringify({
-              timezone: 'Europe/Madrid',
-              currency: 'EUR',
-              language: 'es'
-            })
-          },
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            subscriptionPlan: true,
-            subscriptionExpiresAt: true
+        const professional = await prisma.professional.findUnique({
+          where: { id: decoded.professionalId },
+          include: {
+            clinic: {
+              select: { id: true, name: true, slug: true, city: true }
+            },
+            specialties: {
+              select: { id: true, name: true, category: true }
+            }
           }
         });
-        
-        console.log('✅ Clínica creada exitosamente:', clinic.name);
-      } catch (createError) {
-        console.error('❌ Error creando clínica:', createError);
+
+        if (!professional || !professional.isActive) {
+          return res.status(401).json({
+            success: false,
+            error: { message: 'Profesional no encontrado o inactivo', code: 'PROFESSIONAL_NOT_FOUND' }
+          });
+        }
+
+        userData = {
+          id: professional.id,
+          professionalId: professional.id,
+          email: professional.email,
+          firstName: professional.firstName,
+          lastName: professional.lastName,
+          name: `${professional.firstName} ${professional.lastName}`,
+          phone: professional.phone,
+          role: 'professional',
+          userType: 'professional',
+          license: professional.license,
+          specialization: professional.specialization,
+          clinic: professional.clinic,
+          specialties: professional.specialties,
+          clinicId: professional.clinicId
+        };
+      } catch (dbError) {
+        console.error('❌ Error fetching professional:', dbError);
         return res.status(500).json({
           success: false,
-          error: { message: 'Error configurando clínica de administrador' }
+          error: { message: 'Error interno del servidor', code: 'DATABASE_ERROR' }
         });
       }
     }
+    else if (decoded.adminId) {
+      // TOKEN DE ADMINISTRADOR
+      try {
+        const admin = await prisma.admin.findUnique({
+          where: { id: decoded.adminId },
+          include: {
+            clinic: {
+              select: { id: true, name: true, slug: true, city: true }
+            }
+          }
+        });
 
-    if (!clinic) {
-      return res.status(500).json({
+        if (!admin || !admin.isActive) {
+          return res.status(401).json({
+            success: false,
+            error: { message: 'Administrador no encontrado o inactivo', code: 'ADMIN_NOT_FOUND' }
+          });
+        }
+
+        userData = {
+          id: admin.id,
+          adminId: admin.id,
+          email: admin.email,
+          firstName: admin.firstName,
+          lastName: admin.lastName,
+          name: admin.name || `${admin.firstName} ${admin.lastName}`,
+          phone: admin.phone,
+          role: 'admin',
+          userType: 'admin',
+          permissions: admin.permissions,
+          clinic: admin.clinic,
+          clinicId: admin.clinicId
+        };
+      } catch (dbError) {
+        console.error('❌ Error fetching admin:', dbError);
+        return res.status(500).json({
+          success: false,
+          error: { message: 'Error interno del servidor', code: 'DATABASE_ERROR' }
+        });
+      }
+    }
+    else {
+      return res.status(401).json({
         success: false,
-        error: { message: 'No se pudo configurar la clínica' }
+        error: { message: 'Tipo de token no válido', code: 'INVALID_TOKEN_TYPE' }
       });
     }
 
-    // ✅ CONFIGURAR REQ OBJECTS
-    req.clinic = clinic;
-    req.user = {
-      id: clinic.id,
-      userId: clinic.id,
-      email: clinic.email,
-      firstName: 'Admin',
-      lastName: clinic.name,
-      vipStatus: true,
-      role: 'admin',
-      clinic: clinic
-    };
+    if (!userData) {
+      return res.status(401).json({
+        success: false,
+        error: { message: 'No se pudo verificar el usuario', code: 'USER_VERIFICATION_FAILED' }
+      });
+    }
+
+    // Adjuntar datos del usuario al request
+    req.user = userData;
     
-    console.log(`✅ Admin autenticado: ${clinic.name} (ID: ${clinic.id})`);
+    console.log(`✅ Auth success: ${userData.name} (${userData.userType})`);
     next();
 
   } catch (error) {
-    console.error('❌ Error en authenticateAdmin:', error);
+    console.error('❌ Error en verifyToken:', error);
     
     if (error.name === 'JsonWebTokenError') {
       return res.status(401).json({
         success: false,
-        error: { message: 'Token de administrador inválido' }
+        error: { message: 'Token inválido', code: 'INVALID_TOKEN' }
       });
     }
+    
     if (error.name === 'TokenExpiredError') {
       return res.status(401).json({
         success: false,
-        error: { message: 'Token de administrador expirado' }
+        error: { message: 'Token expirado', code: 'TOKEN_EXPIRED' }
       });
     }
     
     return res.status(500).json({
       success: false,
-      error: { message: 'Error de autenticación de administrador' }
+      error: { message: 'Error interno del servidor', code: 'INTERNAL_ERROR' }
     });
   }
 };
 
 // ============================================================================
-// 🔓 AUTENTICACIÓN OPCIONAL (PARA ENDPOINTS PÚBLICOS)
+// AUTENTICACIÓN OPCIONAL (para endpoints públicos/semi-públicos)
 // ============================================================================
 const optionalAuth = async (req, res, next) => {
   try {
@@ -369,171 +263,176 @@ const optionalAuth = async (req, res, next) => {
       return next();
     }
 
-    // Verificar token si existe
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'default-secret-key');
-    const tokenType = identifyTokenType(decoded);
-    
-    switch (tokenType) {
-      case 'admin':
-        let clinic = null;
-        
-        if (decoded.clinicId) {
-          clinic = await prisma.clinic.findUnique({
-            where: { id: decoded.clinicId }
-          });
-        }
-        
-        if (!clinic && decoded.email) {
-          clinic = await prisma.clinic.findUnique({
-            where: { email: decoded.email }
-          });
-        }
-        
-        req.user = clinic ? {
-          id: clinic.id,
-          email: clinic.email,
-          firstName: 'Admin',
-          lastName: clinic.name,
-          role: 'admin'
-        } : null;
-        break;
-
-      case 'demo':
-        req.user = {
-          id: 'demo-user-123',
-          email: 'demo@bellezaestetica.com',
-          firstName: 'María',
-          lastName: 'Demo',
-          role: 'demo'
-        };
-        break;
-
-      case 'user':
-        // TAMBIÉN AQUÍ REMOVEMOS 'role' DEL SELECT ❌ -> ✅
-        const user = await prisma.user.findUnique({
-          where: { id: decoded.userId },
-          select: {
-            id: true,
-            email: true,
-            firstName: true,
-            lastName: true,
-            vipStatus: true,
-            beautyPoints: true,
-            sessionsCompleted: true
-          }
-        });
-        req.user = user ? {
-          ...user,
-          userId: user.id,
-          role: 'patient' // Asignar rol por defecto
-        } : null;
-        break;
-
-      default:
+    // Usar la función principal pero sin fallar si hay error
+    await verifyToken(req, res, (error) => {
+      if (error) {
+        // Si hay error, continuar sin usuario en lugar de fallar
         req.user = null;
-    }
-
-    next();
+      }
+      next();
+    });
 
   } catch (error) {
-    // Si hay error con el token, continuar sin usuario
-    console.log('⚠️ Optional auth error (continuing):', error.message);
+    // En caso de error, continuar sin usuario
     req.user = null;
     next();
   }
 };
 
 // ============================================================================
-// 💎 REQUERIR VIP
+// VERIFICAR ROLES ESPECÍFICOS
 // ============================================================================
-const requireVIP = async (req, res, next) => {
-  try {
+const requireRole = (allowedRoles) => {
+  return (req, res, next) => {
     if (!req.user) {
-      throw new AppError('Autenticación requerida', 401);
-    }
-    
-    // Los admins siempre tienen acceso VIP
-    if (req.user.role === 'admin') {
-      return next();
-    }
-    
-    if (!req.user.vipStatus) {
-      // Verificar suscripción activa en BD
-      const activeSubscription = await prisma.vipSubscription.findFirst({
-        where: {
-          userId: req.user.id,
-          status: 'ACTIVE',
-          currentPeriodEnd: { gte: new Date() }
-        }
+      return res.status(401).json({
+        success: false,
+        error: { message: 'Autenticación requerida', code: 'AUTH_REQUIRED' }
       });
+    }
 
-      if (!activeSubscription) {
-        throw new AppError('Acceso VIP requerido', 403);
-      }
+    const userRole = req.user.role;
+    const allowedRolesList = Array.isArray(allowedRoles) ? allowedRoles : [allowedRoles];
 
-      // Actualizar estado VIP
-      await prisma.user.update({
-        where: { id: req.user.id },
-        data: { vipStatus: true }
+    if (!allowedRolesList.includes(userRole)) {
+      return res.status(403).json({
+        success: false,
+        error: { 
+          message: 'Permisos insuficientes', 
+          code: 'INSUFFICIENT_PERMISSIONS',
+          required: allowedRolesList,
+          current: userRole
+        }
       });
     }
 
     next();
-  } catch (error) {
-    next(error);
-  }
-};
-
-// ============================================================================
-// 📊 VERIFICAR PLAN DE SUSCRIPCIÓN
-// ============================================================================
-const checkSubscription = (requiredPlan = 'FREE') => {
-  return (req, res, next) => {
-    try {
-      const planHierarchy = { 
-        'FREE': 0, 
-        'BASIC': 1, 
-        'PREMIUM': 2, 
-        'ENTERPRISE': 3 
-      };
-      
-      const currentPlan = req.clinic?.subscriptionPlan || 'FREE';
-      const currentLevel = planHierarchy[currentPlan] || 0;
-      const requiredLevel = planHierarchy[requiredPlan] || 0;
-
-      if (currentLevel < requiredLevel) {
-        return res.status(403).json({
-          success: false,
-          error: { 
-            message: `Plan ${requiredPlan} requerido`,
-            currentPlan,
-            requiredPlan
-          }
-        });
-      }
-
-      next();
-    } catch (error) {
-      next(error);
-    }
   };
 };
 
 // ============================================================================
-// 🎯 ALIAS PARA COMPATIBILIDAD
+// VERIFICAR ACCESO VIP
 // ============================================================================
-const authenticateToken = verifyToken;
-const verifyClinicToken = authenticateAdmin;
+const requireVIP = async (req, res, next) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        error: { message: 'Autenticación requerida', code: 'AUTH_REQUIRED' }
+      });
+    }
+    
+    // Los admins y profesionales siempre tienen acceso VIP
+    if (['admin', 'professional'].includes(req.user.role)) {
+      return next();
+    }
+    
+    // Para usuarios demo, permitir acceso VIP
+    if (req.user.isDemo) {
+      return next();
+    }
+    
+    // Verificar estado VIP del usuario
+    if (!req.user.vipStatus) {
+      // Verificar suscripción activa en BD
+      try {
+        const activeSubscription = await prisma.vipSubscription.findFirst({
+          where: {
+            userId: req.user.id,
+            status: 'ACTIVE',
+            currentPeriodEnd: { gte: new Date() }
+          }
+        });
+
+        if (!activeSubscription) {
+          return res.status(403).json({
+            success: false,
+            error: { 
+              message: 'Acceso VIP requerido', 
+              code: 'VIP_REQUIRED',
+              upgradeUrl: '/vip/upgrade'
+            }
+          });
+        }
+
+        // Actualizar estado VIP si se encontró suscripción activa
+        await prisma.userProfile.update({
+          where: { userId: req.user.id },
+          data: { isVip: true }
+        });
+
+        req.user.vipStatus = true;
+      } catch (dbError) {
+        console.error('❌ Error checking VIP status:', dbError);
+        return res.status(500).json({
+          success: false,
+          error: { message: 'Error verificando estado VIP', code: 'VIP_CHECK_ERROR' }
+        });
+      }
+    }
+
+    next();
+  } catch (error) {
+    console.error('❌ Error in requireVIP:', error);
+    return res.status(500).json({
+      success: false,
+      error: { message: 'Error interno del servidor', code: 'INTERNAL_ERROR' }
+    });
+  }
+};
 
 // ============================================================================
-// 📤 EXPORTACIONES
+// VERIFICAR PERTENENCIA A CLÍNICA
+// ============================================================================
+const requireClinic = (req, res, next) => {
+  if (!req.user) {
+    return res.status(401).json({
+      success: false,
+      error: { message: 'Autenticación requerida', code: 'AUTH_REQUIRED' }
+    });
+  }
+
+  if (!req.user.clinicId && !req.user.isDemo) {
+    return res.status(403).json({
+      success: false,
+      error: { 
+        message: 'Usuario debe estar asociado a una clínica', 
+        code: 'NO_CLINIC_ASSOCIATION' 
+      }
+    });
+  }
+
+  next();
+};
+
+// ============================================================================
+// ALIASES PARA COMPATIBILIDAD
+// ============================================================================
+const authenticateToken = verifyToken;
+const authenticateAdmin = (req, res, next) => {
+  verifyToken(req, res, (error) => {
+    if (error) return next(error);
+    
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        error: { message: 'Acceso de administrador requerido', code: 'ADMIN_REQUIRED' }
+      });
+    }
+    
+    next();
+  });
+};
+
+// ============================================================================
+// EXPORTACIONES
 // ============================================================================
 module.exports = {
   verifyToken,
   authenticateToken,
   authenticateAdmin,
-  verifyClinicToken,
   optionalAuth,
+  requireRole,
   requireVIP,
-  checkSubscription
+  requireClinic
 };
