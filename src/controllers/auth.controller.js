@@ -1,136 +1,93 @@
-// ============================================================================
-// src/controllers/auth.controller.js - CONTROLADOR COMPLETO PARA PRODUCCIÓN ✅
-// ============================================================================
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const crypto = require('crypto');
-const { OAuth2Client } = require('google-auth-library');
 const { PrismaClient } = require('@prisma/client');
-const { validationResult } = require('express-validator');
-const fetch = require('node-fetch'); // Para verificar tokens de Google
 
 const prisma = new PrismaClient();
 
-// Configurar cliente OAuth de Google
-const googleClient = new OAuth2Client({
-  clientId: process.env.GOOGLE_CLIENT_ID,
-  clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-});
-
 // ============================================================================
-// UTILIDADES JWT
+// UTILIDADES
 // ============================================================================
-const generateTokens = (userId, additionalPayload = {}) => {
-  const tokenPayload = {
-    userId,
-    type: 'access',
-    ...additionalPayload
-  };
-
-  const accessToken = jwt.sign(
-    tokenPayload,
-    process.env.JWT_SECRET,
-    { 
-      expiresIn: '24h',
-      issuer: 'clinica-estetica',
-      audience: 'mobile-app'
-    }
-  );
-
+const generateTokens = (payload) => {
+  const accessToken = jwt.sign(payload, process.env.JWT_SECRET, { 
+    expiresIn: '24h',
+    issuer: 'clinica-estetica',
+    audience: 'mobile-app'
+  });
+  
   const refreshToken = jwt.sign(
-    { userId, type: 'refresh' },
-    process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET,
-    { 
-      expiresIn: '30d',
-      issuer: 'clinica-estetica'
-    }
+    { userId: payload.userId || payload.professionalId || payload.adminId, type: 'refresh' },
+    process.env.JWT_REFRESH_SECRET,
+    { expiresIn: '30d', issuer: 'clinica-estetica' }
   );
-
+  
   return { accessToken, refreshToken };
 };
 
-const verifyRefreshToken = (token) => {
-  return jwt.verify(token, process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET);
-};
-
-// ============================================================================
-// EMAIL SERVICE MOCK (Reemplazar con servicio real)
-// ============================================================================
-const EmailService = {
-  sendWelcome: (user) => Promise.resolve(),
-  sendPasswordReset: (user, token) => Promise.resolve(),
-  sendPasswordResetConfirmation: (user) => Promise.resolve()
-};
-
-// ============================================================================
-// ERROR HANDLING
-// ============================================================================
-class AppError extends Error {
-  constructor(message, statusCode, validationErrors = null) {
-    super(message);
-    this.statusCode = statusCode;
-    this.validationErrors = validationErrors;
-    this.isOperational = true;
-
-    Error.captureStackTrace(this, this.constructor);
-  }
-}
-
 class AuthController {
   // ========================================================================
-  // 🔐 LOGIN TRADICIONAL ✅
+  // PATIENT LOGIN
   // ========================================================================
-  static async login(req, res, next) {
+  static async patientLogin(req, res) {
     try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        throw new AppError('Datos de entrada inválidos', 400, errors.array());
-      }
-
-      const { email, password } = req.body;
-
-      console.log(`🔐 Intento de login para: ${email}`);
-
-      // Buscar usuario
-      const user = await prisma.user.findUnique({
-        where: { email: email.toLowerCase() },
-        include: {
-          clinic: true,
-        }
+      const { email, password, clinicSlug } = req.body;
+      
+      console.log(`🏃‍♀️ Patient login: ${email} at ${clinicSlug || 'any'}`);
+      
+      const user = await prisma.user.findFirst({
+        where: {
+          email: email.toLowerCase(),
+          isActive: true,
+          ...(clinicSlug && { clinic: { slug: clinicSlug } })
+        },
+        include: { clinic: true, userProfile: true }
       });
 
       if (!user) {
-        console.log(`❌ Usuario no encontrado: ${email}`);
-        throw new AppError('Credenciales inválidas', 401);
+        return res.status(401).json({
+          success: false,
+          error: {
+            message: clinicSlug ? 'Usuario no encontrado en esta clínica' : 'Usuario no encontrado',
+            code: 'USER_NOT_FOUND'
+          }
+        });
       }
 
-      // Verificar contraseña
-      const isValidPassword = await bcrypt.compare(password, user.passwordHash);
-      if (!isValidPassword) {
-        console.log(`❌ Contraseña incorrecta para: ${email}`);
-        throw new AppError('Credenciales inválidas', 401);
+      if (user.role && ['admin', 'professional'].includes(user.role)) {
+        return res.status(401).json({
+          success: false,
+          error: {
+            message: 'Use el login correspondiente a su rol',
+            code: 'WRONG_USER_TYPE'
+          }
+        });
       }
 
-      // Actualizar último login
+      if (!user.passwordHash || !await bcrypt.compare(password, user.passwordHash)) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'Credenciales inválidas', code: 'INVALID_CREDENTIALS' }
+        });
+      }
+
       await prisma.user.update({
         where: { id: user.id },
         data: { lastLogin: new Date() }
       });
 
-      // Generar tokens
-      const { accessToken, refreshToken } = generateTokens(user.id, {
+      const tokenPayload = {
+        userId: user.id,
         email: user.email,
-        role: user.role,
-        authProvider: user.authProvider || 'email',
-        isEmailVerified: user.isEmailVerified || false
-      });
+        role: user.role || 'patient',
+        clinicId: user.clinicId,
+        userType: 'patient'
+      };
 
-      console.log(`✅ Login exitoso para: ${email}`);
+      const { accessToken, refreshToken } = generateTokens(tokenPayload);
 
-      // Respuesta exitosa
+      console.log(`✅ Patient login successful: ${user.email}`);
+
       res.status(200).json({
         success: true,
-        message: 'Login exitoso',
         data: {
           user: {
             id: user.id,
@@ -138,756 +95,372 @@ class AuthController {
             firstName: user.firstName,
             lastName: user.lastName,
             name: `${user.firstName} ${user.lastName}`,
-            profilePicture: user.profilePicture,
             phone: user.phone,
-            role: user.role,
+            role: user.role || 'patient',
+            profilePicture: user.profilePicture,
             isEmailVerified: user.isEmailVerified,
-            authProvider: user.authProvider || 'email',
-            registrationDate: user.registrationDate,
-            lastLogin: user.lastLogin,
-            clinic: user.clinic ? {
-              id: user.clinic.id,
-              name: user.clinic.name,
-            } : null,
+            clinic: user.clinic,
+            profile: user.userProfile
           },
-          tokens: {
-            accessToken,
-            refreshToken,
-            tokenType: 'Bearer',
-            expiresIn: '24h',
-          },
-          authProvider: user.authProvider || 'email',
-        }
+          tokens: { accessToken, refreshToken, tokenType: 'Bearer', expiresIn: '24h' },
+          userType: 'patient'
+        },
+        message: 'Login exitoso'
       });
 
     } catch (error) {
-      next(error);
+      console.error('❌ Patient login error:', error);
+      res.status(500).json({
+        success: false,
+        error: { message: 'Error interno del servidor', code: 'INTERNAL_ERROR' }
+      });
     }
   }
 
   // ========================================================================
-  // 🔐 GOOGLE LOGIN ✅
+  // PROFESSIONAL LOGIN
   // ========================================================================
-  static async googleLogin(req, res, next) {
+  static async professionalLogin(req, res) {
     try {
-      const {
-        googleId,
-        email,
-        firstName,
-        lastName,
-        name,
-        picture,
-        verified_email,
-        googleAccessToken,
-        googleIdToken,
-        authProvider,
-        platform
-      } = req.body;
-
-      console.log('🔐 Google login attempt for:', email);
-
-      // ✅ 1. VALIDAR TOKEN DE GOOGLE
-      let googleUserInfo;
-      try {
-        // Verificar el ID token con Google
-        if (googleIdToken) {
-          const ticket = await googleClient.verifyIdToken({
-            idToken: googleIdToken,
-            audience: process.env.GOOGLE_CLIENT_ID,
-          });
-          googleUserInfo = ticket.getPayload();
-        } else {
-          // Verificar access token
-          const response = await fetch(`https://www.googleapis.com/oauth2/v1/userinfo?access_token=${googleAccessToken}`);
-          if (!response.ok) {
-            throw new Error('Token de Google inválido');
-          }
-          googleUserInfo = await response.json();
-        }
-
-        // Verificar que el email coincida
-        if (googleUserInfo.email !== email) {
-          throw new Error('Email no coincide con token de Google');
-        }
-
-      } catch (error) {
-        console.error('❌ Error validando token de Google:', error);
-        return res.status(401).json({
-          success: false,
-          error: {
-            message: 'Token de Google inválido',
-            code: 'INVALID_GOOGLE_TOKEN'
-          }
-        });
-      }
-
-      // ✅ 2. BUSCAR O CREAR USUARIO
-      let user;
+      const { email, password, clinicSlug } = req.body;
       
-      try {
-        // 2a. Buscar usuario existente por email
-        user = await prisma.user.findUnique({
-          where: { email: email.toLowerCase() },
-          include: {
-            clinic: true,
-          }
-        });
-
-        if (user) {
-          // Usuario existente - actualizar información de Google
-          user = await prisma.user.update({
-            where: { id: user.id },
-            data: {
-              googleId: googleId,
-              profilePicture: picture,
-              authProvider: 'google',
-              lastLogin: new Date(),
-              isEmailVerified: verified_email || true,
-              // Actualizar nombre si no tenía
-              firstName: user.firstName || firstName,
-              lastName: user.lastName || lastName,
-            },
-            include: {
-              clinic: true,
-            }
-          });
-
-          console.log('✅ Usuario existente actualizado:', user.email);
-
-        } else {
-          // 2b. Crear nuevo usuario
-          user = await prisma.user.create({
-            data: {
-              googleId: googleId,
-              email: email.toLowerCase(),
-              firstName: firstName || name?.split(' ')[0] || 'Usuario',
-              lastName: lastName || name?.split(' ').slice(1).join(' ') || 'Google',
-              profilePicture: picture,
-              authProvider: 'google',
-              isEmailVerified: verified_email || true,
-              registrationDate: new Date(),
-              lastLogin: new Date(),
-              // Campos requeridos por el schema
-              phone: null, // Se puede actualizar después
-              skinType: null,
-              role: 'user',
-              isActive: true,
-            },
-            include: {
-              clinic: true,
-            }
-          });
-
-          console.log('✅ Nuevo usuario creado:', user.email);
-
-          // Crear perfil inicial si existe la tabla
-          try {
-            await prisma.userProfile.create({
-              data: {
-                userId: user.id,
-                beautyPoints: 0,
-                totalSessions: 0,
-                isVip: false,
-                preferences: {
-                  notifications: true,
-                  promotions: true,
-                  reminders: true,
-                }
-              }
-            });
-          } catch (profileError) {
-            console.log('⚠️ No se pudo crear perfil inicial (tabla no existe o error):', profileError.message);
-            // No lanzar error, el usuario se creó exitosamente
-          }
-        }
-
-      } catch (dbError) {
-        console.error('❌ Error en base de datos:', dbError);
-        return res.status(500).json({
-          success: false,
-          error: {
-            message: 'Error interno del servidor',
-            code: 'DATABASE_ERROR'
-          }
-        });
-      }
-
-      // ✅ 3. GENERAR TOKENS JWT
-      const { accessToken, refreshToken } = generateTokens(user.id, {
-        email: user.email,
-        role: user.role,
-        authProvider: 'google',
-        isEmailVerified: user.isEmailVerified,
+      const professional = await prisma.professional.findFirst({
+        where: {
+          email: email.toLowerCase(),
+          isActive: true,
+          ...(clinicSlug && { clinic: { slug: clinicSlug } })
+        },
+        include: { clinic: true, specialties: true }
       });
 
-      // ✅ 4. PREPARAR RESPUESTA
-      const responseData = {
-        user: {
-          id: user.id,
-          email: user.email,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          name: `${user.firstName} ${user.lastName}`,
-          profilePicture: user.profilePicture,
-          phone: user.phone,
-          role: user.role,
-          isEmailVerified: user.isEmailVerified,
-          authProvider: user.authProvider,
-          registrationDate: user.registrationDate,
-          lastLogin: user.lastLogin,
-          clinic: user.clinic ? {
-            id: user.clinic.id,
-            name: user.clinic.name,
-          } : null,
-        },
-        tokens: {
-          accessToken,
-          refreshToken,
-          tokenType: 'Bearer',
-          expiresIn: '24h',
-        },
-        authProvider: 'google',
+      if (!professional) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'Profesional no encontrado', code: 'PROFESSIONAL_NOT_FOUND' }
+        });
+      }
+
+      if (!professional.passwordHash || !await bcrypt.compare(password, professional.passwordHash)) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'Credenciales inválidas', code: 'INVALID_CREDENTIALS' }
+        });
+      }
+
+      await prisma.professional.update({
+        where: { id: professional.id },
+        data: { lastLogin: new Date() }
+      });
+
+      const tokenPayload = {
+        professionalId: professional.id,
+        email: professional.email,
+        role: 'professional',
+        clinicId: professional.clinicId,
+        userType: 'professional'
       };
 
-      // ✅ 5. LOG DE ÉXITO Y RESPUESTA
-      console.log(`✅ Google login successful for user: ${user.email} (ID: ${user.id})`);
+      const { accessToken, refreshToken } = generateTokens(tokenPayload);
 
       res.status(200).json({
         success: true,
-        data: responseData,
-        message: 'Autenticación con Google exitosa'
+        data: {
+          professional: {
+            id: professional.id,
+            email: professional.email,
+            firstName: professional.firstName,
+            lastName: professional.lastName,
+            name: `${professional.firstName} ${professional.lastName}`,
+            phone: professional.phone,
+            role: 'professional',
+            license: professional.license,
+            specialization: professional.specialization,
+            clinic: professional.clinic,
+            specialties: professional.specialties
+          },
+          tokens: { accessToken, refreshToken, tokenType: 'Bearer', expiresIn: '24h' },
+          userType: 'professional'
+        },
+        message: 'Login exitoso'
       });
 
     } catch (error) {
-      console.error('❌ Error general en Google login:', error);
-      
+      console.error('❌ Professional login error:', error);
       res.status(500).json({
         success: false,
-        error: {
-          message: 'Error interno del servidor',
-          code: 'INTERNAL_SERVER_ERROR',
-          details: process.env.NODE_ENV === 'development' ? error.message : undefined
-        }
+        error: { message: 'Error interno del servidor', code: 'INTERNAL_ERROR' }
       });
     }
   }
 
   // ========================================================================
-  // 🎭 DEMO LOGIN ✅
+  // ADMIN LOGIN
   // ========================================================================
-  static async demoLogin(req, res, next) {
+  static async adminLogin(req, res) {
     try {
-      console.log('🎭 Iniciando demo login...');
-
-      // Usuario demo predefinido
-      let demoUser = await prisma.user.findUnique({
-        where: { email: 'demo@bellezaestetica.com' },
+      const { email, password, clinicSlug } = req.body;
+      
+      const admin = await prisma.admin.findFirst({
+        where: {
+          email: email.toLowerCase(),
+          isActive: true,
+          ...(clinicSlug && { clinic: { slug: clinicSlug } })
+        },
         include: { clinic: true }
       });
 
-      // Si no existe, crear usuario demo
-      if (!demoUser) {
-        console.log('🔧 Creando usuario demo...');
-        
-        demoUser = await prisma.user.create({
-          data: {
-            email: 'demo@bellezaestetica.com',
-            passwordHash: await bcrypt.hash('demo123', 12),
-            firstName: 'María',
-            lastName: 'Demo',
-            phone: '+54 11 1234-5678',
-            skinType: 'MIXED',
-            role: 'user',
-            authProvider: 'demo',
-            isEmailVerified: true,
-            isActive: true,
-            registrationDate: new Date(),
-            lastLogin: new Date(),
-          },
-          include: { clinic: true }
-        });
-      } else {
-        // Actualizar último login
-        await prisma.user.update({
-          where: { id: demoUser.id },
-          data: { lastLogin: new Date() }
+      if (!admin) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'Administrador no encontrado', code: 'ADMIN_NOT_FOUND' }
         });
       }
 
-      // Generar tokens
-      const { accessToken, refreshToken } = generateTokens(demoUser.id, {
-        email: demoUser.email,
-        role: demoUser.role,
-        authProvider: 'demo',
-        isEmailVerified: true
+      if (!admin.passwordHash || !await bcrypt.compare(password, admin.passwordHash)) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'Credenciales inválidas', code: 'INVALID_CREDENTIALS' }
+        });
+      }
+
+      await prisma.admin.update({
+        where: { id: admin.id },
+        data: { lastLogin: new Date() }
       });
 
-      console.log('✅ Demo login exitoso');
+      const tokenPayload = {
+        adminId: admin.id,
+        email: admin.email,
+        role: 'admin',
+        clinicId: admin.clinicId,
+        userType: 'admin'
+      };
+
+      const { accessToken, refreshToken } = generateTokens(tokenPayload);
 
       res.status(200).json({
         success: true,
-        message: 'Bienvenida a la experiencia demo',
         data: {
-          user: {
-            id: demoUser.id,
-            email: demoUser.email,
-            firstName: demoUser.firstName,
-            lastName: demoUser.lastName,
-            name: `${demoUser.firstName} ${demoUser.lastName}`,
-            phone: demoUser.phone,
-            role: demoUser.role,
-            authProvider: 'demo',
-            isDemo: true
-          },
-          tokens: {
-            accessToken,
-            refreshToken,
-            tokenType: 'Bearer',
-            expiresIn: '24h',
-          },
-          authProvider: 'demo'
-        }
-      });
-
-    } catch (error) {
-      console.error('❌ Error en demo login:', error);
-      next(error);
-    }
-  }
-
-  // ========================================================================
-  // 👑 ADMIN LOGIN ✅
-  // ========================================================================
-  static async adminLogin(req, res, next) {
-    try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        throw new AppError('Datos de entrada inválidos', 400, errors.array());
-      }
-
-      const { email, password } = req.body;
-
-      console.log(`👑 Intento de admin login para: ${email}`);
-
-      // Buscar clínica admin
-      let clinic = await prisma.clinic.findUnique({
-        where: { email: email.toLowerCase() }
-      });
-
-      // Si no existe, crear clínica demo para desarrollo
-      if (!clinic && email.toLowerCase() === 'admin@bellezaestetica.com') {
-        console.log('🔧 Creando clínica demo...');
-        
-        const passwordHash = await bcrypt.hash('admin123', 12);
-        
-        clinic = await prisma.clinic.create({
-          data: {
-            name: 'Belleza Estética Premium',
-            email: 'admin@bellezaestetica.com',
-            passwordHash,
-            phone: '+34 91 123 4567',
-            address: 'Calle Serrano 123, Madrid',
-            subscriptionPlan: 'PREMIUM',
-            subscriptionExpiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 1 año
-            settings: JSON.stringify({
-              timezone: 'Europe/Madrid',
-              currency: 'EUR',
-              language: 'es',
-              notifications: {
-                email: true,
-                sms: true,
-                push: true
-              }
-            }),
-            brandColors: JSON.stringify({
-              primary: '#8b5cf6',
-              secondary: '#06b6d4',
-              accent: '#f59e0b'
-            })
-          }
-        });
-        
-        console.log('✅ Clínica demo creada exitosamente');
-      }
-
-      if (!clinic) {
-        console.log(`❌ Clínica no encontrada: ${email}`);
-        throw new AppError('Credenciales de administrador inválidas', 401);
-      }
-
-      // Verificar contraseña
-      const isValidPassword = await bcrypt.compare(password, clinic.passwordHash);
-      if (!isValidPassword) {
-        console.log(`❌ Contraseña incorrecta para admin: ${email}`);
-        throw new AppError('Credenciales de administrador inválidas', 401);
-      }
-
-      // Generar token JWT para admin
-      const adminToken = jwt.sign(
-        { 
-          clinicId: clinic.id,
-          email: clinic.email,
-          role: 'admin',
-          plan: clinic.subscriptionPlan
-        },
-        process.env.JWT_SECRET,
-        { expiresIn: '24h' }
-      );
-
-      console.log(`✅ Admin login exitoso para: ${email}`);
-
-      res.status(200).json({
-        success: true,
-        message: 'Login de administrador exitoso',
-        data: {
-          user: {
-            id: clinic.id,
-            email: clinic.email,
-            firstName: 'Admin',
-            lastName: clinic.name,
-            name: `Admin ${clinic.name}`,
+          admin: {
+            id: admin.id,
+            email: admin.email,
+            firstName: admin.firstName,
+            lastName: admin.lastName,
+            name: admin.name || `${admin.firstName} ${admin.lastName}`,
+            phone: admin.phone,
             role: 'admin',
-            plan: clinic.subscriptionPlan,
-            authProvider: 'admin'
+            permissions: admin.permissions,
+            clinic: admin.clinic
           },
-          tokens: {
-            accessToken: adminToken,
-            refreshToken: adminToken,
-            tokenType: 'Bearer',
-            expiresIn: '24h',
-          },
-          clinic: {
-            id: clinic.id,
-            name: clinic.name,
-            plan: clinic.subscriptionPlan,
-            expiresAt: clinic.subscriptionExpiresAt
-          },
-          authProvider: 'admin'
-        }
+          tokens: { accessToken, refreshToken, tokenType: 'Bearer', expiresIn: '24h' },
+          userType: 'admin'
+        },
+        message: 'Login exitoso'
       });
 
     } catch (error) {
-      console.error('❌ Error en admin login:', error);
-      next(error);
+      console.error('❌ Admin login error:', error);
+      res.status(500).json({
+        success: false,
+        error: { message: 'Error interno del servidor', code: 'INTERNAL_ERROR' }
+      });
     }
   }
 
   // ========================================================================
-  // 📝 REGISTRO DE USUARIO ✅
+  // DEMO LOGIN
   // ========================================================================
-  static async register(req, res, next) {
+  static async demoLogin(req, res) {
     try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        console.log('❌ Errores de validación:', errors.array());
-        
-        const friendlyErrors = errors.array().map(error => {
-          switch (error.path) {
-            case 'firstName': return 'El nombre no es válido';
-            case 'lastName': return 'El apellido no es válido';
-            case 'email': return 'El formato del email no es válido';
-            case 'phone': return 'El formato del teléfono no es válido';
-            case 'password': return 'La contraseña debe tener al menos 6 caracteres';
-            default: return error.msg;
-          }
-        });
-        
-        throw new AppError(friendlyErrors[0], 400, friendlyErrors);
-      }
+      const demoUser = {
+        id: 'demo-user-123',
+        email: 'demo@bellezaestetica.com',
+        firstName: 'Demo',
+        lastName: 'User',
+        role: 'patient',
+        clinicId: 'madrid-centro'
+      };
 
-      const { 
-        firstName, 
-        lastName, 
-        email, 
-        phone, 
-        password, 
-        notificationPreferences 
-      } = req.body;
+      const tokenPayload = {
+        userId: demoUser.id,
+        email: demoUser.email,
+        role: 'patient',
+        clinicId: demoUser.clinicId,
+        userType: 'patient'
+      };
 
-      console.log(`📝 Intento de registro para: ${email}`);
+      const { accessToken, refreshToken } = generateTokens(tokenPayload);
 
-      // Verificar si el email ya existe
+      res.status(200).json({
+        success: true,
+        data: {
+          user: {
+            ...demoUser,
+            name: `${demoUser.firstName} ${demoUser.lastName}`,
+            phone: '+34 123 456 789',
+            profilePicture: null,
+            isEmailVerified: true,
+            clinic: {
+              id: 'madrid-centro',
+              name: 'Clínica Madrid Centro',
+              slug: 'madrid-centro',
+              city: 'Madrid'
+            }
+          },
+          tokens: { accessToken, refreshToken, tokenType: 'Bearer', expiresIn: '24h' },
+          userType: 'patient'
+        },
+        message: 'Demo login exitoso'
+      });
+
+    } catch (error) {
+      console.error('❌ Demo login error:', error);
+      res.status(500).json({
+        success: false,
+        error: { message: 'Error en demo login', code: 'DEMO_LOGIN_ERROR' }
+      });
+    }
+  }
+
+  // ========================================================================
+  // REGISTER
+  // ========================================================================
+  static async register(req, res) {
+    try {
+      const { firstName, lastName, email, password, phone, clinicSlug } = req.body;
+      
       const existingUser = await prisma.user.findUnique({
         where: { email: email.toLowerCase() }
       });
 
       if (existingUser) {
-        console.log(`❌ Email ya registrado: ${email}`);
-        throw new AppError('Este email ya está registrado', 409);
+        return res.status(409).json({
+          success: false,
+          error: { message: 'Email ya registrado', code: 'EMAIL_EXISTS' }
+        });
       }
 
-      // Hash de la contraseña
+      let clinicId = null;
+      if (clinicSlug) {
+        const clinic = await prisma.clinic.findUnique({ where: { slug: clinicSlug } });
+        if (!clinic) {
+          return res.status(404).json({
+            success: false,
+            error: { message: 'Clínica no encontrada', code: 'CLINIC_NOT_FOUND' }
+          });
+        }
+        clinicId = clinic.id;
+      }
+
       const passwordHash = await bcrypt.hash(password, 12);
 
-      // Preparar preferencias de notificación
-      const defaultPreferences = {
-        appointments: true,
-        wellness: true,
-        offers: false,
-        promotions: false,
-        ...notificationPreferences
-      };
-
-      // Crear usuario
-      const newUser = await prisma.user.create({
+      const user = await prisma.user.create({
         data: {
+          firstName,
+          lastName,
           email: email.toLowerCase(),
           passwordHash,
-          firstName: firstName.trim(),
-          lastName: lastName.trim(),
-          phone: phone?.trim(),
-          role: 'user',
-          authProvider: 'email',
-          isEmailVerified: false,
+          phone,
+          clinicId,
+          role: 'patient',
           isActive: true,
           registrationDate: new Date(),
-          lastLogin: new Date(),
-          preferredNotifications: JSON.stringify(defaultPreferences)
-        }
+          authProvider: 'local'
+        },
+        include: { clinic: true }
       });
 
-      console.log(`✅ Usuario creado exitosamente: ${email} (ID: ${newUser.id})`);
+      // Crear perfil inicial
+      try {
+        await prisma.userProfile.create({
+          data: {
+            userId: user.id,
+            beautyPoints: 0,
+            totalSessions: 0,
+            isVip: false,
+            preferences: { notifications: true, promotions: true, reminders: true }
+          }
+        });
+      } catch (profileError) {
+        console.log('⚠️ No se pudo crear perfil inicial');
+      }
 
-      // Enviar email de bienvenida en background
-      EmailService.sendWelcome(newUser).catch(error => {
-        console.error('⚠️ Error enviando email de bienvenida:', error);
-      });
+      const tokenPayload = {
+        userId: user.id,
+        email: user.email,
+        role: 'patient',
+        clinicId: user.clinicId,
+        userType: 'patient'
+      };
 
-      // Generar tokens
-      const { accessToken, refreshToken } = generateTokens(newUser.id, {
-        email: newUser.email,
-        role: newUser.role,
-        authProvider: 'email',
-        isEmailVerified: false
-      });
+      const { accessToken, refreshToken } = generateTokens(tokenPayload);
 
       res.status(201).json({
         success: true,
-        message: 'Usuario registrado exitosamente',
         data: {
           user: {
-            id: newUser.id,
-            email: newUser.email,
-            firstName: newUser.firstName,
-            lastName: newUser.lastName,
-            name: `${newUser.firstName} ${newUser.lastName}`,
-            phone: newUser.phone,
-            role: newUser.role,
-            authProvider: 'email',
-            isEmailVerified: false
+            id: user.id,
+            email: user.email,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            name: `${user.firstName} ${user.lastName}`,
+            phone: user.phone,
+            role: 'patient',
+            clinic: user.clinic
           },
-          tokens: {
-            accessToken,
-            refreshToken,
-            tokenType: 'Bearer',
-            expiresIn: '24h',
-          },
-          authProvider: 'email'
-        }
-      });
-
-    } catch (error) {
-      console.error('❌ Error en registro:', error);
-      next(error);
-    }
-  }
-
-  // ========================================================================
-  // 🔑 FORGOT PASSWORD ✅
-  // ========================================================================
-  static async forgotPassword(req, res, next) {
-    try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        throw new AppError('Email inválido', 400, errors.array());
-      }
-
-      const { email } = req.body;
-      
-      console.log(`🔑 Solicitud de recuperación para: ${email}`);
-
-      const user = await prisma.user.findUnique({
-        where: { email: email.toLowerCase() }
-      });
-
-      // Por seguridad, siempre respondemos OK
-      if (!user) {
-        console.log(`⚠️ Usuario no encontrado: ${email}, pero respondemos OK por seguridad`);
-        
-        res.status(200).json({
-          success: true,
-          message: 'Si existe una cuenta con ese email, recibirás las instrucciones de recuperación'
-        });
-        return;
-      }
-
-      // Invalidar tokens existentes
-      await prisma.passwordResetToken.updateMany({
-        where: { 
-          userId: user.id,
-          used: false,
-          expiresAt: { gte: new Date() }
+          tokens: { accessToken, refreshToken, tokenType: 'Bearer', expiresIn: '24h' },
+          userType: 'patient'
         },
-        data: { used: true }
-      });
-
-      // Generar nuevo token
-      const resetToken = crypto.randomBytes(32).toString('hex');
-      const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hora
-
-      await prisma.passwordResetToken.create({
-        data: {
-          token: resetToken,
-          userId: user.id,
-          expiresAt
-        }
-      });
-
-      // Enviar email en background
-      EmailService.sendPasswordReset(user, resetToken).catch(error => {
-        console.error('⚠️ Error enviando email de recuperación:', error);
-      });
-
-      console.log(`✅ Token de recuperación creado para: ${email}`);
-
-      res.status(200).json({
-        success: true,
-        message: 'Si existe una cuenta con ese email, recibirás las instrucciones de recuperación',
-        data: {
-          // En desarrollo, incluir el token para testing
-          ...(process.env.NODE_ENV === 'development' && { 
-            resetToken,
-            expiresAt,
-            userFound: true
-          })
-        }
+        message: 'Usuario registrado exitosamente'
       });
 
     } catch (error) {
-      console.error('❌ Error en forgot password:', error);
-      next(error);
+      console.error('❌ Registration error:', error);
+      res.status(500).json({
+        success: false,
+        error: { message: 'Error interno del servidor', code: 'INTERNAL_ERROR' }
+      });
     }
   }
 
   // ========================================================================
-  // 🔍 VERIFICAR TOKEN DE RECUPERACIÓN ✅
+  // REFRESH TOKEN
   // ========================================================================
-  static async verifyResetToken(req, res, next) {
-    try {
-      const { token } = req.params;
-
-      console.log(`🔍 Verificando token: ${token.substring(0, 10)}...`);
-
-      const resetToken = await prisma.passwordResetToken.findUnique({
-        where: { token },
-        include: { user: true }
-      });
-
-      if (!resetToken || resetToken.used || resetToken.expiresAt < new Date()) {
-        console.log(`❌ Token inválido o expirado`);
-        throw new AppError('Token de recuperación inválido o expirado', 400);
-      }
-
-      console.log(`✅ Token válido para usuario: ${resetToken.user.email}`);
-
-      res.status(200).json({
-        success: true,
-        message: 'Token válido',
-        data: {
-          email: resetToken.user.email,
-          firstName: resetToken.user.firstName
-        }
-      });
-
-    } catch (error) {
-      console.error('❌ Error verificando token:', error);
-      next(error);
-    }
-  }
-
-  // ========================================================================
-  // 🔄 RESETEAR CONTRASEÑA ✅
-  // ========================================================================
-  static async resetPassword(req, res, next) {
-    try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        throw new AppError('Datos inválidos', 400, errors.array());
-      }
-
-      const { token, newPassword } = req.body;
-
-      console.log(`🔑 Reseteando contraseña con token: ${token.substring(0, 10)}...`);
-
-      const resetToken = await prisma.passwordResetToken.findUnique({
-        where: { token },
-        include: { user: true }
-      });
-
-      if (!resetToken || resetToken.used || resetToken.expiresAt < new Date()) {
-        console.log(`❌ Token inválido para reset`);
-        throw new AppError('Token de recuperación inválido o expirado', 400);
-      }
-
-      const passwordHash = await bcrypt.hash(newPassword, 12);
-
-      // Actualizar contraseña y marcar token como usado
-      await prisma.$transaction([
-        prisma.user.update({
-          where: { id: resetToken.userId },
-          data: { passwordHash }
-        }),
-        prisma.passwordResetToken.update({
-          where: { id: resetToken.id },
-          data: { used: true }
-        }),
-        prisma.passwordResetToken.updateMany({
-          where: { 
-            userId: resetToken.userId,
-            used: false,
-            id: { not: resetToken.id }
-          },
-          data: { used: true }
-        })
-      ]);
-
-      console.log(`✅ Contraseña actualizada para: ${resetToken.user.email}`);
-
-      EmailService.sendPasswordResetConfirmation(resetToken.user).catch(error => {
-        console.error('⚠️ Error enviando confirmación:', error);
-      });
-
-      res.status(200).json({
-        success: true,
-        message: 'Contraseña actualizada exitosamente',
-        data: {
-          email: resetToken.user.email
-        }
-      });
-
-    } catch (error) {
-      console.error('❌ Error reseteando contraseña:', error);
-      next(error);
-    }
-  }
-
-  // ========================================================================
-  // 🔄 REFRESH TOKEN ✅
-  // ========================================================================
-  static async refreshToken(req, res, next) {
+  static async refreshToken(req, res) {
     try {
       const { refreshToken } = req.body;
 
       if (!refreshToken) {
-        throw new AppError('Refresh token requerido', 400);
+        return res.status(401).json({
+          success: false,
+          error: { message: 'Refresh token requerido', code: 'REFRESH_TOKEN_REQUIRED' }
+        });
       }
 
-      console.log('🔄 Renovando token...');
+      const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
+      
+      let userData = null;
+      let tokenPayload = {};
 
-      const decoded = verifyRefreshToken(refreshToken);
-      const { accessToken, refreshToken: newRefreshToken } = generateTokens(decoded.userId);
+      if (decoded.userId) {
+        userData = await prisma.user.findUnique({ where: { id: decoded.userId } });
+        tokenPayload = {
+          userId: userData.id,
+          email: userData.email,
+          role: userData.role || 'patient',
+          clinicId: userData.clinicId,
+          userType: 'patient'
+        };
+      }
 
-      console.log('✅ Token renovado exitosamente');
+      if (!userData || !userData.isActive) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'Usuario no válido', code: 'INVALID_USER' }
+        });
+      }
+
+      const { accessToken, refreshToken: newRefreshToken } = generateTokens(tokenPayload);
 
       res.status(200).json({
         success: true,
@@ -896,463 +469,82 @@ class AuthController {
             accessToken,
             refreshToken: newRefreshToken,
             tokenType: 'Bearer',
-            expiresIn: '24h',
+            expiresIn: '24h'
           }
-        }
+        },
+        message: 'Token renovado exitosamente'
       });
 
     } catch (error) {
-      console.error('❌ Error renovando token:', error);
-      next(error);
+      console.error('❌ Refresh token error:', error);
+      res.status(401).json({
+        success: false,
+        error: { message: 'Refresh token inválido', code: 'INVALID_REFRESH_TOKEN' }
+      });
     }
   }
 
   // ========================================================================
-  // 👋 LOGOUT ✅
+  // LOGOUT
   // ========================================================================
-  static async logout(req, res, next) {
+  static async logout(req, res) {
+    res.status(200).json({
+      success: true,
+      message: 'Sesión cerrada exitosamente'
+    });
+  }
+
+  // ========================================================================
+  // VALIDATE SESSION
+  // ========================================================================
+  static async validateSession(req, res) {
     try {
-      console.log('👋 Logout ejecutado');
+      const { userId, professionalId, adminId } = req.user;
       
-      res.status(200).json({
-        success: true,
-        message: 'Sesión cerrada exitosamente'
-      });
-    } catch (error) {
-      console.error('❌ Error en logout:', error);
-      next(error);
-    }
-  }
+      let userData = null;
+      let userType = 'unknown';
 
-  // ========================================================================
-  // 🔒 CHANGE PASSWORD ✅
-  // ========================================================================
-  static async changePassword(req, res, next) {
-    try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        throw new AppError('Datos inválidos', 400, errors.array());
-      }
-
-      const { currentPassword, newPassword } = req.body;
-      const userId = req.user.id;
-
-      console.log(`🔑 Cambio de contraseña para usuario: ${userId}`);
-
-      const user = await prisma.user.findUnique({
-        where: { id: userId }
-      });
-
-      if (!user) {
-        throw new AppError('Usuario no encontrado', 404);
-      }
-
-      const isValidCurrentPassword = await bcrypt.compare(currentPassword, user.passwordHash);
-      if (!isValidCurrentPassword) {
-        console.log('❌ Contraseña actual incorrecta');
-        throw new AppError('Contraseña actual incorrecta', 400);
-      }
-
-      const newPasswordHash = await bcrypt.hash(newPassword, 12);
-
-      await prisma.user.update({
-        where: { id: userId },
-        data: { passwordHash: newPasswordHash }
-      });
-
-      console.log(`✅ Contraseña cambiada para usuario: ${userId}`);
-
-      res.status(200).json({
-        success: true,
-        message: 'Contraseña actualizada exitosamente'
-      });
-
-    } catch (error) {
-      console.error('❌ Error cambiando contraseña:', error);
-      next(error);
-    }
-  }
-
-  // ========================================================================
-  // ✅ VALIDATE SESSION ✅
-  // ========================================================================
-  static async validateSession(req, res, next) {
-    try {
-      const userId = req.user.id;
-
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-        include: {
-          clinic: true,
-        }
-      });
-
-      if (!user) {
-        throw new AppError('Sesión inválida', 401);
-      }
-
-      res.status(200).json({
-        success: true,
-        data: {
-          user: {
-            id: user.id,
-            email: user.email,
-            firstName: user.firstName,
-            lastName: user.lastName,
-            name: `${user.firstName} ${user.lastName}`,
-            profilePicture: user.profilePicture,
-            phone: user.phone,
-            role: user.role,
-            isEmailVerified: user.isEmailVerified,
-            authProvider: user.authProvider,
-            clinic: user.clinic ? {
-              id: user.clinic.id,
-              name: user.clinic.name,
-            } : null,
-          }
-        }
-      });
-
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  // ========================================================================
-  // 📧 VERIFY EMAIL (Opcional) ✅
-  // ========================================================================
-  static async verifyEmail(req, res, next) {
-    try {
-      const { token } = req.params;
-
-      console.log(`📧 Verificando email con token: ${token.substring(0, 10)}...`);
-
-      // Buscar token de verificación
-      const verificationToken = await prisma.emailVerificationToken.findUnique({
-        where: { token },
-        include: { user: true }
-      });
-
-      if (!verificationToken || verificationToken.used || verificationToken.expiresAt < new Date()) {
-        console.log(`❌ Token de verificación inválido o expirado`);
-        throw new AppError('Token de verificación inválido o expirado', 400);
-      }
-
-      // Actualizar usuario y marcar token como usado
-      await prisma.$transaction([
-        prisma.user.update({
-          where: { id: verificationToken.userId },
-          data: { isEmailVerified: true }
-        }),
-        prisma.emailVerificationToken.update({
-          where: { id: verificationToken.id },
-          data: { used: true }
-        })
-      ]);
-
-      console.log(`✅ Email verificado para: ${verificationToken.user.email}`);
-
-      res.status(200).json({
-        success: true,
-        message: 'Email verificado exitosamente',
-        data: {
-          email: verificationToken.user.email,
-          verified: true
-        }
-      });
-
-    } catch (error) {
-      console.error('❌ Error verificando email:', error);
-      next(error);
-    }
-  }
-
-  // ========================================================================
-  // 📧 RESEND EMAIL VERIFICATION ✅
-  // ========================================================================
-  static async resendEmailVerification(req, res, next) {
-    try {
-      const userId = req.user?.id || req.body.userId;
-      const email = req.body.email;
-
-      console.log(`📧 Reenviando verificación de email para: ${email || userId}`);
-
-      let user;
       if (userId) {
-        user = await prisma.user.findUnique({ where: { id: userId } });
-      } else if (email) {
-        user = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
+        userData = await prisma.user.findUnique({
+          where: { id: userId },
+          include: { clinic: true, userProfile: true }
+        });
+        userType = 'patient';
+      } else if (professionalId) {
+        userData = await prisma.professional.findUnique({
+          where: { id: professionalId },
+          include: { clinic: true, specialties: true }
+        });
+        userType = 'professional';
+      } else if (adminId) {
+        userData = await prisma.admin.findUnique({
+          where: { id: adminId },
+          include: { clinic: true }
+        });
+        userType = 'admin';
       }
 
-      if (!user) {
-        throw new AppError('Usuario no encontrado', 404);
-      }
-
-      if (user.isEmailVerified) {
-        return res.status(200).json({
-          success: true,
-          message: 'El email ya está verificado'
+      if (!userData) {
+        return res.status(404).json({
+          success: false,
+          error: { message: 'Usuario no encontrado', code: 'USER_NOT_FOUND' }
         });
       }
 
-      // Invalidar tokens existentes
-      await prisma.emailVerificationToken.updateMany({
-        where: { 
-          userId: user.id,
-          used: false,
-          expiresAt: { gte: new Date() }
-        },
-        data: { used: true }
-      });
-
-      // Generar nuevo token
-      const verificationToken = crypto.randomBytes(32).toString('hex');
-      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 horas
-
-      await prisma.emailVerificationToken.create({
-        data: {
-          token: verificationToken,
-          userId: user.id,
-          expiresAt
-        }
-      });
-
-      // Enviar email en background
-      EmailService.sendEmailVerification(user, verificationToken).catch(error => {
-        console.error('⚠️ Error enviando email de verificación:', error);
-      });
-
-      console.log(`✅ Token de verificación creado para: ${user.email}`);
-
       res.status(200).json({
         success: true,
-        message: 'Email de verificación enviado',
-        data: {
-          // En desarrollo, incluir el token para testing
-          ...(process.env.NODE_ENV === 'development' && { 
-            verificationToken,
-            expiresAt
-          })
-        }
+        data: { user: userData, userType, authenticated: true },
+        message: 'Sesión válida'
       });
 
     } catch (error) {
-      console.error('❌ Error reenviando verificación:', error);
-      next(error);
-    }
-  }
-
-  // ========================================================================
-  // 🔍 CHECK EMAIL AVAILABILITY ✅
-  // ========================================================================
-  static async checkEmailAvailability(req, res, next) {
-    try {
-      const { email } = req.query;
-
-      if (!email) {
-        throw new AppError('Email requerido', 400);
-      }
-
-      const existingUser = await prisma.user.findUnique({
-        where: { email: email.toLowerCase() }
+      console.error('❌ Error validating session:', error);
+      res.status(500).json({
+        success: false,
+        error: { message: 'Error interno del servidor', code: 'INTERNAL_ERROR' }
       });
-
-      res.status(200).json({
-        success: true,
-        data: {
-          email,
-          available: !existingUser,
-          message: existingUser ? 'Este email ya está registrado' : 'Email disponible'
-        }
-      });
-
-    } catch (error) {
-      console.error('❌ Error verificando disponibilidad de email:', error);
-      next(error);
-    }
-  }
-
-  // ========================================================================
-  // 📱 VERIFY PHONE (Opcional) ✅
-  // ========================================================================
-  static async verifyPhone(req, res, next) {
-    try {
-      const { phone, code } = req.body;
-      const userId = req.user.id;
-
-      console.log(`📱 Verificando teléfono: ${phone} para usuario: ${userId}`);
-
-      // Buscar código de verificación
-      const verificationCode = await prisma.phoneVerificationCode.findUnique({
-        where: { 
-          phone_code: {
-            phone,
-            code
-          }
-        },
-        include: { user: true }
-      });
-
-      if (!verificationCode || 
-          verificationCode.used || 
-          verificationCode.expiresAt < new Date() ||
-          verificationCode.userId !== userId) {
-        console.log(`❌ Código de verificación inválido`);
-        throw new AppError('Código de verificación inválido o expirado', 400);
-      }
-
-      // Actualizar usuario y marcar código como usado
-      await prisma.$transaction([
-        prisma.user.update({
-          where: { id: userId },
-          data: { 
-            phone,
-            isPhoneVerified: true 
-          }
-        }),
-        prisma.phoneVerificationCode.update({
-          where: { id: verificationCode.id },
-          data: { used: true }
-        })
-      ]);
-
-      console.log(`✅ Teléfono verificado para usuario: ${userId}`);
-
-      res.status(200).json({
-        success: true,
-        message: 'Teléfono verificado exitosamente',
-        data: {
-          phone,
-          verified: true
-        }
-      });
-
-    } catch (error) {
-      console.error('❌ Error verificando teléfono:', error);
-      next(error);
-    }
-  }
-
-  // ========================================================================
-  // 🔄 REFRESH USER DATA ✅
-  // ========================================================================
-  static async refreshUserData(req, res, next) {
-    try {
-      const userId = req.user.id;
-
-      console.log(`🔄 Actualizando datos de usuario: ${userId}`);
-
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-        include: {
-          clinic: true,
-        }
-      });
-
-      if (!user) {
-        throw new AppError('Usuario no encontrado', 404);
-      }
-
-      res.status(200).json({
-        success: true,
-        data: {
-          user: {
-            id: user.id,
-            email: user.email,
-            firstName: user.firstName,
-            lastName: user.lastName,
-            name: `${user.firstName} ${user.lastName}`,
-            profilePicture: user.profilePicture,
-            phone: user.phone,
-            role: user.role,
-            isEmailVerified: user.isEmailVerified,
-            isPhoneVerified: user.isPhoneVerified,
-            authProvider: user.authProvider,
-            registrationDate: user.registrationDate,
-            lastLogin: user.lastLogin,
-            clinic: user.clinic ? {
-              id: user.clinic.id,
-              name: user.clinic.name,
-            } : null,
-          }
-        }
-      });
-
-    } catch (error) {
-      console.error('❌ Error actualizando datos de usuario:', error);
-      next(error);
     }
   }
 }
 
-// ============================================================================
-// MIDDLEWARE DE MANEJO DE ERRORES ✅
-// ============================================================================
-const errorHandler = (error, req, res, next) => {
-  console.error('🔥 Error capturado:', error);
-
-  // Error de validación de Prisma
-  if (error.code === 'P2002') {
-    return res.status(409).json({
-      success: false,
-      error: {
-        message: 'Este email ya está registrado',
-        code: 'DUPLICATE_EMAIL'
-      }
-    });
-  }
-
-  // Error operacional (AppError)
-  if (error.isOperational) {
-    return res.status(error.statusCode).json({
-      success: false,
-      error: {
-        message: error.message,
-        code: error.code || 'OPERATIONAL_ERROR',
-        validationErrors: error.validationErrors
-      }
-    });
-  }
-
-  // Error de JWT
-  if (error.name === 'JsonWebTokenError') {
-    return res.status(401).json({
-      success: false,
-      error: {
-        message: 'Token inválido',
-        code: 'INVALID_TOKEN'
-      }
-    });
-  }
-
-  if (error.name === 'TokenExpiredError') {
-    return res.status(401).json({
-      success: false,
-      error: {
-        message: 'Token expirado',
-        code: 'TOKEN_EXPIRED'
-      }
-    });
-  }
-
-  // Error genérico
-  res.status(500).json({
-    success: false,
-    error: {
-      message: 'Error interno del servidor',
-      code: 'INTERNAL_SERVER_ERROR',
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
-    }
-  });
-};
-
-// ============================================================================
-// EXPORTAR MÓDULO ✅
-// ============================================================================
-module.exports = {
-  AuthController,
-  AppError,
-  errorHandler,
-  generateTokens,
-  verifyRefreshToken
-};
+module.exports = AuthController;
