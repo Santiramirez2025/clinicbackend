@@ -1,271 +1,592 @@
-// ============================================================================
-// prisma/seed.js - ACTUALIZADO PARA NUEVO SCHEMA
-// ============================================================================
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcrypt');
 
 const prisma = new PrismaClient();
 
-async function seed() {
-  try {
-    console.log('🌱 Iniciando seed de la base de datos...');
+async function main() {
+  console.log('🌱 Iniciando seed de datos de prueba...');
 
-    // Hashear passwords
-    const adminHash = await bcrypt.hash('admin123', 10);
-    const demoHash = await bcrypt.hash('demo123', 10);
-    const profHash = await bcrypt.hash('prof123', 10);
+  // ============================================================================
+  // 🔄 LIMPIAR DATOS EXISTENTES
+  // ============================================================================
+  console.log('🧹 Limpiando datos anteriores...');
+  
+  // Limpiar en orden correcto (relaciones)
+  await prisma.appointment.deleteMany();
+  await prisma.offer.deleteMany();
+  await prisma.treatment.deleteMany();
+  await prisma.user.deleteMany();
+  await prisma.professional.deleteMany();
+  await prisma.clinic.deleteMany();
+  
+  console.log('✅ Datos anteriores eliminados');
 
-    // 1. Crear clínica principal
-    const clinic = await prisma.clinic.upsert({
-      where: {
-        email: "admin@bellezaestetica.com"
-      },
-      update: {},
-      create: {
-        name: "Belleza Estética Madrid Centro",
-        slug: "madrid-centro", // ✅ CAMPO REQUERIDO
-        email: "admin@bellezaestetica.com",
-        passwordHash: adminHash,
-        phone: "+34 911 234 567",
-        address: "Calle Gran Vía 28, Madrid",
-        city: "Madrid", // ✅ CAMPO REQUERIDO
-        country: "ES",
-        timezone: "Europe/Madrid",
-        businessHours: JSON.stringify({
-          monday: { open: '09:00', close: '20:00' },
-          tuesday: { open: '09:00', close: '20:00' },
-          wednesday: { open: '09:00', close: '20:00' },
-          thursday: { open: '09:00', close: '20:00' },
-          friday: { open: '09:00', close: '20:00' },
-          saturday: { open: '10:00', close: '18:00' },
-          sunday: { closed: true }
-        }),
-        subscriptionPlan: "PREMIUM",
-        subscriptionExpiresAt: new Date("2026-08-10"),
-        onboardingCompleted: true,
-        isActive: true,
-        isVerified: true,
-        enableVipProgram: true,
-        enableNotifications: true,
-        enableOnlineBooking: true,
-        enablePayments: true
-      }
-    });
+  // ============================================================================
+  // 🏥 CREAR CLÍNICA
+  // ============================================================================
+  console.log('📍 Creando clínica...');
+  
+  const clinic = await prisma.clinic.create({
+    data: {
+      name: 'Belleza Estética Madrid',
+      slug: 'madrid-centro',
+      email: 'info@bellezaesteticamadrid.com',
+      passwordHash: await bcrypt.hash('clinic123', 10),
+      phone: '+34 91 123 4567',
+      address: 'Calle Serrano, 45',
+      city: 'Madrid',
+      country: 'ES',
+      timezone: 'Europe/Madrid',
+      businessHours: JSON.stringify({
+        lunes: '9:00-20:00',
+        martes: '9:00-20:00',
+        miercoles: '9:00-20:00',
+        jueves: '9:00-20:00',
+        viernes: '9:00-20:00',
+        sabado: '10:00-18:00',
+        domingo: 'cerrado'
+      }),
+      subscriptionPlan: 'PREMIUM',
+      maxProfessionals: 10,
+      maxPatients: 500,
+      enableVipProgram: true,
+      enableNotifications: true,
+      enableOnlineBooking: true,
+      enablePayments: true,
+      isActive: true,
+      isVerified: true,
+      onboardingCompleted: true
+    }
+  });
 
-    console.log(`✅ Clínica creada: ${clinic.name}`);
+  console.log(`✅ Clínica creada: ${clinic.name} (${clinic.slug})`);
 
-    // 2. Crear usuario demo
-    const demoUser = await prisma.user.upsert({
-      where: {
-        email: "demo@bellezaestetica.com"
-      },
-      update: {},
-      create: {
-        email: "demo@bellezaestetica.com",
-        passwordHash: demoHash,
-        firstName: "María",
-        lastName: "González",
-        phone: "+34 600 123 456",
-        primaryClinicId: clinic.id, // ✅ CAMPO REQUERIDO
-        beautyPoints: 150,
-        loyaltyTier: "SILVER",
-        vipStatus: true,
-        isActive: true,
-        isVerified: true,
-        onboardingCompleted: true,
-        privacyAccepted: true,
-        termsAccepted: true,
-        marketingAccepted: true,
-        emailNotifications: true,
-        smsNotifications: false,
-        marketingNotifications: true
-      }
-    });
+  // ============================================================================
+  // 👨‍⚕️ CREAR PROFESIONAL
+  // ============================================================================
+  console.log('👨‍⚕️ Creando profesional...');
+  
+  const professional = await prisma.professional.create({
+    data: {
+      clinicId: clinic.id,
+      email: 'maria.lopez@bellezaesteticamadrid.com',
+      passwordHash: await bcrypt.hash('maria123', 10),
+      role: 'PROFESSIONAL',
+      firstName: 'María',
+      lastName: 'López',
+      phone: '+34 611 234 567',
+      licenseNumber: 'EST-2024-001',
+      specialties: JSON.stringify([
+        'Tratamientos Faciales',
+        'Depilación Láser',
+        'Mesoterapia',
+        'Radiofrecuencia'
+      ]),
+      certifications: JSON.stringify([
+        'Certificación en Estética Avanzada',
+        'Especialista en Láser Diodo',
+        'Mesoterapia Facial'
+      ]),
+      experience: 8,
+      bio: 'Especialista en tratamientos estéticos faciales con 8 años de experiencia. Certificada en las últimas técnicas de rejuvenecimiento y cuidado de la piel.',
+      languages: JSON.stringify(['Español', 'Inglés']),
+      employmentType: 'FULL_TIME',
+      hourlyRate: 45.00,
+      commissionRate: 15.0,
+      availableHours: JSON.stringify({
+        lunes: ['9:00-13:00', '15:00-19:00'],
+        martes: ['9:00-13:00', '15:00-19:00'],
+        miercoles: ['9:00-13:00', '15:00-19:00'],
+        jueves: ['9:00-13:00', '15:00-19:00'],
+        viernes: ['9:00-13:00', '15:00-19:00'],
+        sabado: ['10:00-14:00']
+      }),
+      workingDays: JSON.stringify(['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado']),
+      rating: 4.8,
+      totalAppointments: 156,
+      totalRevenue: 12480.00,
+      patientSatisfaction: 4.9,
+      permissions: JSON.stringify(['manage_appointments', 'view_patients', 'update_treatments']),
+      canManageSchedule: true,
+      canViewReports: false,
+      canManagePatients: true,
+      canManageTreatments: false,
+      isActive: true,
+      isVerified: true,
+      onboardingCompleted: true
+    }
+  });
 
-    console.log(`✅ Usuario demo creado: ${demoUser.firstName} ${demoUser.lastName}`);
+  console.log(`✅ Profesional creado: ${professional.firstName} ${professional.lastName}`);
 
-    // 3. Crear profesional
-    const professional = await prisma.professional.upsert({
-      where: {
-        email: "ana.profesional@bellezaestetica.com"
-      },
-      update: {},
-      create: {
-        email: "ana.profesional@bellezaestetica.com",
-        passwordHash: profHash,
-        firstName: "Ana",
-        lastName: "Martínez",
-        clinicId: clinic.id,
-        role: "PROFESSIONAL",
-        phone: "+34 600 987 654",
-        specialties: JSON.stringify(['Tratamientos Faciales', 'Hidratación', 'Limpieza Profunda']),
-        bio: "Especialista en tratamientos faciales con 5 años de experiencia en belleza y estética",
-        experience: 5,
-        employmentType: "FULL_TIME",
-        rating: 4.8,
-        totalAppointments: 245,
-        patientSatisfaction: 4.9,
-        isActive: true,
-        isVerified: true,
-        onboardingCompleted: true,
-        canManageSchedule: true,
-        canViewReports: false,
-        canManagePatients: false,
-        canManageTreatments: false
-      }
-    });
+  // ============================================================================
+  // 💉 CREAR TRATAMIENTOS
+  // ============================================================================
+  console.log('💉 Creando tratamientos...');
+  
+  const treatments = [
+    {
+      name: 'Limpieza Facial Profunda',
+      description: 'Limpieza facial completa con extracción de comedones, exfoliación y mascarilla hidratante. Incluye análisis de piel personalizado.',
+      shortDescription: 'Limpieza facial completa',
+      category: 'facial',
+      subcategory: 'limpieza',
+      durationMinutes: 60,
+      price: 65.00,
+      vipPrice: 52.00,
+      preparationTime: 10,
+      iconName: 'face-clean',
+      color: '#4CAF50',
+      contraindications: JSON.stringify(['Acné activo severo', 'Heridas abiertas', 'Rosácea en brote']),
+      requirements: JSON.stringify(['No usar retinoides 48h antes', 'Piel limpia sin maquillaje']),
+      aftercareInfo: 'Evitar sol directo 24h. Aplicar protector solar. No usar productos exfoliantes por 2 días.',
+      isVipExclusive: false,
+      requiresConsultation: false,
+      maxSessionsPerMonth: 2,
+      beautyPointsEarned: 65,
+      isActive: true,
+      isFeatured: true,
+      isPopular: true,
+      tags: JSON.stringify(['limpieza', 'higiene', 'piel grasa', 'comedones']),
+      seoTitle: 'Limpieza Facial Profunda Madrid | Belleza Estética',
+      seoDescription: 'Limpieza facial profunda en Madrid. Extracción de comedones y tratamiento personalizado.',
+      sortOrder: 1
+    },
+    {
+      name: 'Radiofrecuencia Facial Antiedad',
+      description: 'Tratamiento no invasivo que estimula la producción de colágeno mediante ondas de radiofrecuencia. Reduce arrugas, flacidez y mejora la firmeza de la piel.',
+      shortDescription: 'Antiedad con radiofrecuencia',
+      category: 'facial',
+      subcategory: 'antiedad',
+      durationMinutes: 45,
+      price: 120.00,
+      vipPrice: 96.00,
+      preparationTime: 15,
+      iconName: 'anti-aging',
+      color: '#FF9800',
+      contraindications: JSON.stringify(['Embarazo', 'Marcapasos', 'Implantes metálicos en la zona', 'Cáncer activo']),
+      requirements: JSON.stringify(['Consulta previa', 'Piel sin lesiones']),
+      aftercareInfo: 'Hidratar bien la zona. Evitar calor extremo 24h. Usar protector solar.',
+      isVipExclusive: false,
+      requiresConsultation: true,
+      maxSessionsPerMonth: 4,
+      beautyPointsEarned: 120,
+      isActive: true,
+      isFeatured: true,
+      isNew: false,
+      tags: JSON.stringify(['antiedad', 'radiofrecuencia', 'lifting', 'firmeza']),
+      sortOrder: 2
+    },
+    {
+      name: 'Depilación Láser Diodo',
+      description: 'Depilación láser de última generación con tecnología diodo. Segura y eficaz para todo tipo de piel, incluso bronceada.',
+      shortDescription: 'Depilación láser definitiva',
+      category: 'depilacion',
+      subcategory: 'laser',
+      durationMinutes: 30,
+      price: 80.00,
+      vipPrice: 64.00,
+      preparationTime: 5,
+      iconName: 'laser-hair',
+      color: '#9C27B0',
+      contraindications: JSON.stringify(['Embarazo', 'Medicación fotosensibilizante', 'Cáncer de piel', 'Herpes activo']),
+      requirements: JSON.stringify(['Afeitar zona 24h antes', 'No depilación con cera 4 semanas antes', 'Evitar sol 2 semanas']),
+      aftercareInfo: 'No exponer al sol 48h. Aplicar crema hidratante. Evitar perfumes en la zona.',
+      isVipExclusive: false,
+      requiresConsultation: false,
+      maxSessionsPerMonth: 1,
+      beautyPointsEarned: 80,
+      isActive: true,
+      isFeatured: false,
+      isPopular: true,
+      tags: JSON.stringify(['depilacion', 'laser', 'definitiva', 'diodo']),
+      sortOrder: 3
+    },
+    {
+      name: 'HydraFacial con Ácido Hialurónico',
+      description: 'Tratamiento de hidratación intensiva que combina limpieza, exfoliación e hidratación profunda con ácido hialurónico de bajo peso molecular.',
+      shortDescription: 'Hidratación facial intensiva',
+      category: 'facial',
+      subcategory: 'hidratacion',
+      durationMinutes: 50,
+      price: 95.00,
+      vipPrice: 76.00,
+      preparationTime: 10,
+      iconName: 'hydration',
+      color: '#2196F3',
+      contraindications: JSON.stringify(['Alergia al ácido hialurónico', 'Heridas abiertas', 'Infecciones activas']),
+      requirements: JSON.stringify(['Piel limpia', 'No usar productos activos 24h antes']),
+      aftercareInfo: 'Hidratar regularmente. Usar protector solar. Evitar ejercicio intenso 4h.',
+      isVipExclusive: false,
+      requiresConsultation: false,
+      maxSessionsPerMonth: 3,
+      beautyPointsEarned: 95,
+      isActive: true,
+      isFeatured: true,
+      isNew: false,
+      tags: JSON.stringify(['hidratacion', 'acido hialuronico', 'hydrafacial', 'luminosidad']),
+      sortOrder: 4
+    },
+    {
+      name: 'Mesoterapia Facial Vitamínica',
+      description: 'Inyección de vitaminas, minerales y ácido hialurónico para revitalizar y rejuvenecer la piel del rostro. Mejora textura, luminosidad y firmeza.',
+      shortDescription: 'Mesoterapia revitalizante',
+      category: 'facial',
+      subcategory: 'mesoterapia',
+      durationMinutes: 40,
+      price: 150.00,
+      vipPrice: 120.00,
+      preparationTime: 15,
+      iconName: 'mesotherapy',
+      color: '#E91E63',
+      contraindications: JSON.stringify(['Embarazo', 'Lactancia', 'Anticoagulantes', 'Alergia a componentes']),
+      requirements: JSON.stringify(['Consulta médica previa', 'No aspirinas 5 días antes', 'Consentimiento informado']),
+      aftercareInfo: 'No masajear zona 24h. Evitar maquillaje 6h. Aplicar hielo si hay inflamación.',
+      isVipExclusive: false,
+      requiresConsultation: true,
+      maxSessionsPerMonth: 2,
+      beautyPointsEarned: 150,
+      isActive: true,
+      isFeatured: false,
+      isNew: true,
+      tags: JSON.stringify(['mesoterapia', 'vitaminas', 'revitalizante', 'inyectable']),
+      sortOrder: 5
+    },
+    {
+      name: 'Peeling Químico Glycolic',
+      description: 'Peeling con ácido glicólico para renovar la piel, reducir manchas, cicatrices de acné y mejorar la textura general.',
+      shortDescription: 'Renovación con ácido glicólico',
+      category: 'facial',
+      subcategory: 'peeling',
+      durationMinutes: 35,
+      price: 85.00,
+      vipPrice: 68.00,
+      preparationTime: 10,
+      iconName: 'chemical-peel',
+      color: '#FFC107',
+      contraindications: JSON.stringify(['Embarazo', 'Herpes activo', 'Uso de retinoides', 'Piel muy sensible']),
+      requirements: JSON.stringify(['Preparación previa 15 días', 'Test de sensibilidad', 'Protector solar obligatorio']),
+      aftercareInfo: 'No exposición solar 7 días. Hidratar intensamente. No exfoliar hasta descamación completa.',
+      isVipExclusive: false,
+      requiresConsultation: true,
+      maxSessionsPerMonth: 1,
+      beautyPointsEarned: 85,
+      isActive: true,
+      isFeatured: false,
+      isPopular: false,
+      tags: JSON.stringify(['peeling', 'acido glicolico', 'manchas', 'renovacion']),
+      sortOrder: 6
+    },
+    {
+      name: 'Tratamiento Corporal Reafirmante',
+      description: 'Tratamiento corporal con radiofrecuencia y cavitación para reafirmar tejidos, reducir celulitis y mejorar contorno corporal.',
+      shortDescription: 'Reafirmante corporal integral',
+      category: 'corporal',
+      subcategory: 'reafirmante',
+      durationMinutes: 75,
+      price: 110.00,
+      vipPrice: 88.00,
+      preparationTime: 10,
+      iconName: 'body-firming',
+      color: '#607D8B',
+      contraindications: JSON.stringify(['Embarazo', 'Marcapasos', 'Varices severas', 'Trombosis']),
+      requirements: JSON.stringify(['Consulta previa', 'Hidratación abundante pre-tratamiento']),
+      aftercareInfo: 'Beber mucha agua. Realizar drenaje linfático suave. Evitar calor intenso 24h.',
+      isVipExclusive: true,
+      requiresConsultation: true,
+      maxSessionsPerMonth: 2,
+      beautyPointsEarned: 110,
+      isActive: true,
+      isFeatured: true,
+      isNew: false,
+      tags: JSON.stringify(['corporal', 'reafirmante', 'celulitis', 'contorno']),
+      sortOrder: 7
+    }
+  ];
 
-    console.log(`✅ Profesional creado: ${professional.firstName} ${professional.lastName}`);
-
-    // 4. Crear tratamientos
-    const treatment1 = await prisma.treatment.create({
+  const createdTreatments = [];
+  for (const treatmentData of treatments) {
+    const treatment = await prisma.treatment.create({
       data: {
-        name: "Limpieza Facial Profunda",
-        description: "Tratamiento completo de limpieza facial con extracción de puntos negros, hidratación y mascarilla nutritiva.",
-        shortDescription: "Limpieza profunda de cutis",
-        category: "facial",
-        subcategory: "limpieza",
-        durationMinutes: 60,
-        price: 45.00,
-        vipPrice: 36.00,
-        iconName: "face-wash",
-        color: "#FF6B9D",
-        beautyPointsEarned: 15,
-        clinicId: clinic.id,
-        isActive: true,
-        isFeatured: true,
-        isPopular: true,
-        tags: JSON.stringify(['limpieza', 'facial', 'puntos_negros', 'hidratacion'])
+        ...treatmentData,
+        clinicId: clinic.id
       }
     });
+    createdTreatments.push(treatment);
+    console.log(`   ✅ ${treatment.name} - €${treatment.price}`);
+  }
 
-    const treatment2 = await prisma.treatment.create({
+  // ============================================================================
+  // 👥 CREAR USUARIOS DE PRUEBA
+  // ============================================================================
+  console.log('👥 Creando usuarios de prueba...');
+  
+  const users = [
+    {
+      email: 'ana.garcia@example.com',
+      firstName: 'Ana',
+      lastName: 'García',
+      phone: '+34 612 345 678',
+      birthDate: new Date('1988-05-15'),
+      gender: 'F',
+      skinType: 'mixta',
+      allergies: JSON.stringify(['Níquel']),
+      medicalConditions: JSON.stringify([]),
+      treatmentPreferences: JSON.stringify(['Tratamientos faciales', 'Depilación láser']),
+      beautyPoints: 250,
+      totalInvestment: 340.00,
+      sessionsCompleted: 3,
+      loyaltyTier: 'SILVER',
+      vipStatus: false,
+      emailNotifications: true,
+      smsNotifications: false,
+      marketingNotifications: true,
+      isActive: true,
+      isVerified: true,
+      onboardingCompleted: true,
+      privacyAccepted: true,
+      termsAccepted: true,
+      marketingAccepted: true
+    },
+    {
+      email: 'carmen.rodriguez@example.com',
+      firstName: 'Carmen',
+      lastName: 'Rodríguez',
+      phone: '+34 623 456 789',
+      birthDate: new Date('1982-09-22'),
+      gender: 'F',
+      skinType: 'seca',
+      allergies: JSON.stringify([]),
+      medicalConditions: JSON.stringify(['Rosácea leve']),
+      treatmentPreferences: JSON.stringify(['Hidratación facial', 'Mesoterapia']),
+      beautyPoints: 850,
+      totalInvestment: 1240.00,
+      sessionsCompleted: 8,
+      loyaltyTier: 'GOLD',
+      vipStatus: true,
+      emailNotifications: true,
+      smsNotifications: true,
+      marketingNotifications: true,
+      isActive: true,
+      isVerified: true,
+      onboardingCompleted: true,
+      privacyAccepted: true,
+      termsAccepted: true,
+      marketingAccepted: true
+    },
+    {
+      email: 'lucia.martin@example.com',
+      firstName: 'Lucía',
+      lastName: 'Martín',
+      phone: '+34 634 567 890',
+      birthDate: new Date('1995-03-08'),
+      gender: 'F',
+      skinType: 'grasa',
+      allergies: JSON.stringify(['Parabenos']),
+      medicalConditions: JSON.stringify([]),
+      treatmentPreferences: JSON.stringify(['Limpieza facial', 'Peeling químico']),
+      beautyPoints: 120,
+      totalInvestment: 150.00,
+      sessionsCompleted: 1,
+      loyaltyTier: 'BRONZE',
+      vipStatus: false,
+      emailNotifications: true,
+      smsNotifications: false,
+      marketingNotifications: false,
+      isActive: true,
+      isVerified: true,
+      onboardingCompleted: true,
+      privacyAccepted: true,
+      termsAccepted: true,
+      marketingAccepted: false
+    }
+  ];
+
+  const createdUsers = [];
+  for (const userData of users) {
+    const user = await prisma.user.create({
       data: {
-        name: "Hidratación Facial Premium",
-        description: "Tratamiento hidratante intensivo con ácido hialurónico, vitamina C y masaje facial relajante.",
-        shortDescription: "Hidratación intensiva anti-edad",
-        category: "facial",
-        subcategory: "hidratacion",
-        durationMinutes: 75,
-        price: 65.00,
-        vipPrice: 52.00,
-        iconName: "droplet",
-        color: "#4ECDC4",
-        beautyPointsEarned: 20,
-        clinicId: clinic.id,
-        isActive: true,
-        isVipExclusive: true,
-        isFeatured: true,
-        tags: JSON.stringify(['hidratacion', 'anti_edad', 'acido_hialuronico', 'vip'])
+        ...userData,
+        passwordHash: await bcrypt.hash('demo123', 10),
+        primaryClinicId: clinic.id
       }
     });
+    createdUsers.push(user);
+    console.log(`   ✅ ${user.firstName} ${user.lastName} (${user.loyaltyTier})`);
+  }
 
-    console.log(`✅ Tratamientos creados: ${treatment1.name}, ${treatment2.name}`);
+  // ============================================================================
+  // 📅 CREAR CITAS DE EJEMPLO
+  // ============================================================================
+  console.log('📅 Creando citas de ejemplo...');
+  
+  // Cita pasada (completada)
+  const pastAppointment = await prisma.appointment.create({
+    data: {
+      userId: createdUsers[0].id,
+      clinicId: clinic.id,
+      professionalId: professional.id,
+      treatmentId: createdTreatments[0].id, // Limpieza facial
+      scheduledDate: new Date('2025-01-15'),
+      scheduledTime: new Date('2025-01-15T10:00:00Z'),
+      endTime: new Date('2025-01-15T11:00:00Z'),
+      durationMinutes: 60,
+      status: 'COMPLETED',
+      priority: 'NORMAL',
+      notes: 'Primera visita - piel mixta con tendencia grasa en zona T',
+      professionalNotes: 'Respondió muy bien al tratamiento. Recomendar rutina domiciliaria.',
+      originalPrice: 65.00,
+      finalPrice: 65.00,
+      discountApplied: 0,
+      beautyPointsEarned: 65,
+      beautyPointsUsed: 0,
+      reminderSent: true,
+      confirmationSent: true,
+      followUpSent: true,
+      bookingSource: 'APP',
+      isFirstVisit: true,
+      confirmedAt: new Date('2025-01-14T09:00:00Z'),
+      startedAt: new Date('2025-01-15T10:00:00Z'),
+      completedAt: new Date('2025-01-15T11:00:00Z')
+    }
+  });
 
-    // 5. Crear ofertas
+  // Cita próxima (confirmada)
+  const upcomingAppointment = await prisma.appointment.create({
+    data: {
+      userId: createdUsers[1].id,
+      clinicId: clinic.id,
+      professionalId: professional.id,
+      treatmentId: createdTreatments[1].id, // Radiofrecuencia
+      scheduledDate: new Date('2025-08-15'),
+      scheduledTime: new Date('2025-08-15T16:00:00Z'),
+      endTime: new Date('2025-08-15T16:45:00Z'),
+      durationMinutes: 45,
+      status: 'CONFIRMED',
+      priority: 'NORMAL',
+      notes: 'Segunda sesión de radiofrecuencia - continuar tratamiento antiedad',
+      originalPrice: 120.00,
+      finalPrice: 96.00, // Precio VIP
+      discountApplied: 24.00,
+      beautyPointsEarned: 120,
+      beautyPointsUsed: 0,
+      reminderSent: false,
+      confirmationSent: true,
+      followUpSent: false,
+      bookingSource: 'APP',
+      isFirstVisit: false,
+      confirmedAt: new Date('2025-08-10T14:30:00Z')
+    }
+  });
+
+  console.log(`   ✅ Cita pasada: ${pastAppointment.status}`);
+  console.log(`   ✅ Cita próxima: ${upcomingAppointment.status}`);
+
+  // ============================================================================
+  // 🎁 CREAR OFERTAS ESPECIALES
+  // ============================================================================
+  console.log('🎁 Creando ofertas especiales...');
+  
+  const offers = [
+    {
+      title: 'Primera Visita 50% Descuento',
+      description: 'Descuento especial del 50% en tu primera limpieza facial. Válido para nuevos clientes.',
+      shortDescription: '50% OFF primera visita',
+      terms: 'Válido solo para nuevos clientes. No acumulable con otras ofertas. Cita previa necesaria.',
+      discountType: 'PERCENTAGE',
+      discountValue: 50.0,
+      originalPrice: 65.00,
+      finalPrice: 32.50,
+      validFrom: new Date('2025-08-01'),
+      validUntil: new Date('2025-12-31'),
+      targetAudience: 'NEW_CUSTOMERS',
+      treatmentIds: JSON.stringify([createdTreatments[0].id]),
+      maxUses: 100,
+      maxUsesPerUser: 1,
+      currentUses: 0,
+      imageUrl: null,
+      backgroundColor: '#4CAF50',
+      textColor: '#FFFFFF',
+      priority: 1,
+      category: 'GENERAL',
+      sendNotification: true,
+      isActive: true,
+      isFeatured: true,
+      autoApply: false,
+      code: 'PRIMERA50'
+    },
+    {
+      title: 'Pack 3 Sesiones Radiofrecuencia',
+      description: 'Ahorra €60 comprando un pack de 3 sesiones de radiofrecuencia facial. Resultados visibles garantizados.',
+      shortDescription: 'Pack 3 sesiones',
+      terms: 'Válido por 6 meses desde la compra. Las sesiones deben espaciarse mínimo 15 días.',
+      discountType: 'FIXED_AMOUNT',
+      discountValue: 60.0,
+      originalPrice: 360.00,
+      finalPrice: 300.00,
+      validFrom: new Date('2025-08-01'),
+      validUntil: new Date('2026-02-28'),
+      targetAudience: 'ALL',
+      treatmentIds: JSON.stringify([createdTreatments[1].id]),
+      maxUses: 50,
+      maxUsesPerUser: 2,
+      currentUses: 0,
+      imageUrl: null,
+      backgroundColor: '#FF9800',
+      textColor: '#FFFFFF',
+      priority: 1,
+      category: 'VIP',
+      sendNotification: true,
+      isActive: true,
+      isFeatured: true,
+      autoApply: false,
+      code: 'PACK3RF'
+    }
+  ];
+
+  for (const offerData of offers) {
     const offer = await prisma.offer.create({
       data: {
-        clinicId: clinic.id,
-        title: "20% OFF Primera Visita",
-        description: "Descuento especial del 20% en tu primera cita. Válido para nuevas clientas.",
-        shortDescription: "20% descuento primera cita",
-        discountType: "PERCENTAGE",
-        discountValue: 20,
-        validFrom: new Date(),
-        validUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 días
-        targetAudience: "NEW_CUSTOMERS",
-        maxUsesPerUser: 1,
-        treatmentIds: JSON.stringify([treatment1.id, treatment2.id]),
-        category: "GENERAL",
-        priority: 1,
-        isActive: true,
-        isFeatured: true,
-        sendNotification: true
+        ...offerData,
+        clinicId: clinic.id
       }
     });
-
-    console.log(`✅ Oferta creada: ${offer.title}`);
-
-    // 6. Crear wellness tips
-    await prisma.wellnessTip.createMany({
-      data: [
-        {
-          clinicId: clinic.id,
-          title: "Hidratación diaria para piel radiante",
-          content: "Mantén tu piel hidratada bebiendo al menos 2 litros de agua al día y usando una crema hidratante adecuada para tu tipo de piel.",
-          excerpt: "Tips de hidratación para una piel saludable",
-          category: "skincare",
-          iconName: "droplets",
-          color: "#4ECDC4",
-          isActive: true,
-          priority: 1,
-          tags: JSON.stringify(['hidratacion', 'cuidado_diario', 'piel_sana'])
-        },
-        {
-          clinicId: clinic.id,
-          title: "Protección solar: tu mejor aliado",
-          content: "Usa protector solar SPF 30+ todos los días, incluso en días nublados. Es la mejor prevención contra el envejecimiento prematuro.",
-          excerpt: "Importancia del protector solar diario",
-          category: "skincare",
-          iconName: "sun",
-          color: "#FFE66D",
-          isActive: true,
-          priority: 2,
-          tags: JSON.stringify(['proteccion_solar', 'anti_edad', 'prevencion'])
-        }
-      ]
-    });
-
-    console.log('✅ Wellness tips creados');
-
-    // 7. Crear recompensa template
-    const rewardTemplate = await prisma.rewardTemplate.create({
-      data: {
-        clinicId: clinic.id,
-        name: "10% Descuento",
-        description: "Descuento del 10% en cualquier tratamiento facial",
-        shortDescription: "10% OFF tratamientos faciales",
-        type: "DISCOUNT",
-        value: 10,
-        valueType: "PERCENTAGE",
-        pointsCost: 100,
-        marginCost: 5.00,
-        validityDays: 30,
-        maxUsesPerMonth: 5,
-        maxUsesPerUser: 1,
-        targetUserType: "ALL",
-        iconName: "percent",
-        color: "#FF6B9D",
-        isActive: true,
-        isFeatured: true,
-        popularity: 0.8
-      }
-    });
-
-    console.log(`✅ Reward template creado: ${rewardTemplate.name}`);
-
-    console.log('\n🎉 ¡Seed completado exitosamente!');
-    console.log('\n📧 Credenciales de acceso:');
-    console.log('🏥 Admin Clínica: admin@bellezaestetica.com / admin123');
-    console.log('👤 Usuario Demo: demo@bellezaestetica.com / demo123');
-    console.log('👨‍⚕️ Profesional: ana.profesional@bellezaestetica.com / prof123');
-    console.log(`\n🏪 Clínica: ${clinic.name} (${clinic.slug})`);
-
-  } catch (error) {
-    console.error('❌ Error durante el seed:', error);
-    throw error;
+    console.log(`   ✅ ${offer.title} - ${offer.discountValue}% OFF`);
   }
+
+  // ============================================================================
+  // ✨ RESUMEN FINAL
+  // ============================================================================
+  console.log('\n🎉 ¡Seed completado exitosamente!');
+  console.log('=====================================');
+  console.log(`🏥 Clínica: ${clinic.name}`);
+  console.log(`👨‍⚕️ Profesionales: 1`);
+  console.log(`💉 Tratamientos: ${createdTreatments.length}`);
+  console.log(`👥 Usuarios: ${createdUsers.length}`);
+  console.log(`📅 Citas: 2`);
+  console.log(`🎁 Ofertas: ${offers.length}`);
+  console.log('=====================================');
+  console.log('\n📱 Credenciales de prueba:');
+  console.log('👤 USUARIOS:');
+  console.log('   Email: ana.garcia@example.com');
+  console.log('   Email: carmen.rodriguez@example.com (VIP)');
+  console.log('   Email: lucia.martin@example.com');
+  console.log('   Password: demo123');
+  console.log('\n👨‍⚕️ PROFESIONAL:');
+  console.log('   Email: maria.lopez@bellezaesteticamadrid.com');
+  console.log('   Password: maria123');
+  console.log('\n🏥 CLÍNICA:');
+  console.log('   Slug: madrid-centro');
+  console.log('   Email: info@bellezaesteticamadrid.com');
+  console.log('   Password: clinic123');
+  console.log('\n🚀 ¡Tu app está lista para testing!');
 }
 
-async function main() {
-  try {
-    await seed();
-  } catch (error) {
-    console.error('❌ Error en main:', error);
+main()
+  .catch((e) => {
+    console.error('❌ Error durante el seed:', e);
     process.exit(1);
-  } finally {
+  })
+  .finally(async () => {
     await prisma.$disconnect();
-  }
-}
-
-main();
+  });
