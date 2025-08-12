@@ -1,3 +1,8 @@
+// ============================================================================
+// 🔐 AUTH MIDDLEWARE CORREGIDO PARA SCHEMA PRISMA
+// src/middleware/auth.middleware.js
+// ============================================================================
+
 const jwt = require('jsonwebtoken');
 const { PrismaClient } = require('@prisma/client');
 
@@ -27,12 +32,12 @@ const verifyToken = async (req, res, next) => {
     }
 
     // Verificar y decodificar token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback-secret');
     
     console.log('🔍 Token decoded:', { 
       userId: decoded.userId, 
       professionalId: decoded.professionalId,
-      adminId: decoded.adminId,
+      clinicId: decoded.clinicId,
       role: decoded.role,
       userType: decoded.userType 
     });
@@ -55,19 +60,18 @@ const verifyToken = async (req, res, next) => {
           userType: 'patient',
           beautyPoints: 1250,
           vipStatus: true,
+          loyaltyTier: 'GOLD',
+          clinicId: 'madrid-centro',
           isDemo: true
         };
       } else {
-        // Usuario real - buscar en BD
+        // Usuario real - buscar en BD con schema correcto
         try {
           const user = await prisma.user.findUnique({
             where: { id: decoded.userId },
             include: {
-              clinic: {
+              primaryClinic: { // ✅ CORREGIDO: usar primaryClinic
                 select: { id: true, name: true, slug: true, city: true }
-              },
-              userProfile: {
-                select: { beautyPoints: true, isVip: true, totalSessions: true }
               }
             }
           });
@@ -94,14 +98,16 @@ const verifyToken = async (req, res, next) => {
             lastName: user.lastName,
             name: `${user.firstName} ${user.lastName}`,
             phone: user.phone,
-            role: user.role || 'patient',
+            role: 'patient',
             userType: 'patient',
-            profilePicture: user.profilePicture,
-            beautyPoints: user.userProfile?.beautyPoints || 0,
-            vipStatus: user.userProfile?.isVip || false,
-            totalSessions: user.userProfile?.totalSessions || 0,
-            clinic: user.clinic,
-            clinicId: user.clinicId
+            avatarUrl: user.avatarUrl, // ✅ CORREGIDO: campo correcto
+            beautyPoints: user.beautyPoints, // ✅ CORREGIDO: directamente del user
+            vipStatus: user.vipStatus, // ✅ CORREGIDO: directamente del user
+            loyaltyTier: user.loyaltyTier, // ✅ CORREGIDO: directamente del user
+            totalInvestment: user.totalInvestment,
+            sessionsCompleted: user.sessionsCompleted,
+            clinic: user.primaryClinic, // ✅ CORREGIDO: usar primaryClinic
+            clinicId: user.primaryClinicId // ✅ CORREGIDO: usar primaryClinicId
           };
         } catch (dbError) {
           console.error('❌ Error fetching user:', dbError);
@@ -120,9 +126,6 @@ const verifyToken = async (req, res, next) => {
           include: {
             clinic: {
               select: { id: true, name: true, slug: true, city: true }
-            },
-            specialties: {
-              select: { id: true, name: true, category: true }
             }
           }
         });
@@ -142,12 +145,14 @@ const verifyToken = async (req, res, next) => {
           lastName: professional.lastName,
           name: `${professional.firstName} ${professional.lastName}`,
           phone: professional.phone,
-          role: 'professional',
+          role: professional.role || 'PROFESSIONAL', // ✅ CORREGIDO: usar role del schema
           userType: 'professional',
-          license: professional.license,
-          specialization: professional.specialization,
+          licenseNumber: professional.licenseNumber, // ✅ CORREGIDO: campo correcto
+          specialties: professional.specialties ? JSON.parse(professional.specialties) : [], // ✅ Parse JSON
+          experience: professional.experience,
+          rating: professional.rating,
+          avatarUrl: professional.avatarUrl,
           clinic: professional.clinic,
-          specialties: professional.specialties,
           clinicId: professional.clinicId
         };
       } catch (dbError) {
@@ -158,41 +163,40 @@ const verifyToken = async (req, res, next) => {
         });
       }
     }
-    else if (decoded.adminId) {
-      // TOKEN DE ADMINISTRADOR
+    else if (decoded.clinicId && decoded.userType === 'admin') {
+      // TOKEN DE ADMINISTRADOR (CLÍNICA)
       try {
-        const admin = await prisma.admin.findUnique({
-          where: { id: decoded.adminId },
-          include: {
-            clinic: {
-              select: { id: true, name: true, slug: true, city: true }
-            }
-          }
+        const clinic = await prisma.clinic.findUnique({
+          where: { id: decoded.clinicId }
         });
 
-        if (!admin || !admin.isActive) {
+        if (!clinic || !clinic.isActive) {
           return res.status(401).json({
             success: false,
-            error: { message: 'Administrador no encontrado o inactivo', code: 'ADMIN_NOT_FOUND' }
+            error: { message: 'Clínica no encontrada o inactiva', code: 'CLINIC_NOT_FOUND' }
           });
         }
 
         userData = {
-          id: admin.id,
-          adminId: admin.id,
-          email: admin.email,
-          firstName: admin.firstName,
-          lastName: admin.lastName,
-          name: admin.name || `${admin.firstName} ${admin.lastName}`,
-          phone: admin.phone,
+          id: clinic.id,
+          clinicId: clinic.id,
+          email: clinic.email,
+          name: clinic.name,
+          phone: clinic.phone,
           role: 'admin',
           userType: 'admin',
-          permissions: admin.permissions,
-          clinic: admin.clinic,
-          clinicId: admin.clinicId
+          subscriptionPlan: clinic.subscriptionPlan,
+          maxProfessionals: clinic.maxProfessionals,
+          maxPatients: clinic.maxPatients,
+          clinic: {
+            id: clinic.id,
+            name: clinic.name,
+            slug: clinic.slug,
+            city: clinic.city
+          }
         };
       } catch (dbError) {
-        console.error('❌ Error fetching admin:', dbError);
+        console.error('❌ Error fetching clinic:', dbError);
         return res.status(500).json({
           success: false,
           error: { message: 'Error interno del servidor', code: 'DATABASE_ERROR' }
@@ -263,14 +267,22 @@ const optionalAuth = async (req, res, next) => {
       return next();
     }
 
-    // Usar la función principal pero sin fallar si hay error
-    await verifyToken(req, res, (error) => {
-      if (error) {
-        // Si hay error, continuar sin usuario en lugar de fallar
-        req.user = null;
-      }
+    // Intentar verificar token pero no fallar si hay error
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback-secret');
+      req.tokenDecoded = decoded;
+      
+      // Procesar según tipo de usuario pero continuar si falla
+      await verifyToken(req, res, (error) => {
+        if (error) {
+          req.user = null;
+        }
+        next();
+      });
+    } catch (tokenError) {
+      req.user = null;
       next();
-    });
+    }
 
   } catch (error) {
     // En caso de error, continuar sin usuario
@@ -294,7 +306,11 @@ const requireRole = (allowedRoles) => {
     const userRole = req.user.role;
     const allowedRolesList = Array.isArray(allowedRoles) ? allowedRoles : [allowedRoles];
 
-    if (!allowedRolesList.includes(userRole)) {
+    // Normalizar roles para comparación
+    const normalizedUserRole = userRole.toLowerCase();
+    const normalizedAllowedRoles = allowedRolesList.map(role => role.toLowerCase());
+
+    if (!normalizedAllowedRoles.includes(normalizedUserRole)) {
       return res.status(403).json({
         success: false,
         error: { 
@@ -323,7 +339,7 @@ const requireVIP = async (req, res, next) => {
     }
     
     // Los admins y profesionales siempre tienen acceso VIP
-    if (['admin', 'professional'].includes(req.user.role)) {
+    if (['admin', 'professional'].includes(req.user.role.toLowerCase())) {
       return next();
     }
     
@@ -356,9 +372,9 @@ const requireVIP = async (req, res, next) => {
         }
 
         // Actualizar estado VIP si se encontró suscripción activa
-        await prisma.userProfile.update({
-          where: { userId: req.user.id },
-          data: { isVip: true }
+        await prisma.user.update({
+          where: { id: req.user.id },
+          data: { vipStatus: true } // ✅ CORREGIDO: actualizar directamente en user
         });
 
         req.user.vipStatus = true;
@@ -406,23 +422,19 @@ const requireClinic = (req, res, next) => {
 };
 
 // ============================================================================
+// MIDDLEWARE COMBINADOS PARA FACILIDAD DE USO
+// ============================================================================
+const requirePatient = [verifyToken, requireRole(['patient'])];
+const requireProfessional = [verifyToken, requireRole(['professional', 'PROFESSIONAL'])];
+const requireAdmin = [verifyToken, requireRole(['admin'])];
+const requireClinicAccess = [verifyToken, requireClinic];
+const requireVIPAccess = [verifyToken, requireVIP];
+
+// ============================================================================
 // ALIASES PARA COMPATIBILIDAD
 // ============================================================================
 const authenticateToken = verifyToken;
-const authenticateAdmin = (req, res, next) => {
-  verifyToken(req, res, (error) => {
-    if (error) return next(error);
-    
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({
-        success: false,
-        error: { message: 'Acceso de administrador requerido', code: 'ADMIN_REQUIRED' }
-      });
-    }
-    
-    next();
-  });
-};
+const authenticateAdmin = [verifyToken, requireRole(['admin'])];
 
 // ============================================================================
 // EXPORTACIONES
@@ -434,5 +446,10 @@ module.exports = {
   optionalAuth,
   requireRole,
   requireVIP,
-  requireClinic
+  requireClinic,
+  requirePatient,
+  requireProfessional,
+  requireAdmin,
+  requireClinicAccess,
+  requireVIPAccess
 };

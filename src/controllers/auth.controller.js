@@ -1,3 +1,8 @@
+// ============================================================================
+// 🔐 AUTH CONTROLLER CORREGIDO PARA SCHEMA PRISMA
+// src/controllers/auth.controller.js
+// ============================================================================
+
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { PrismaClient } = require('@prisma/client');
@@ -8,16 +13,19 @@ const prisma = new PrismaClient();
 // UTILIDADES
 // ============================================================================
 const generateTokens = (payload) => {
-  const accessToken = jwt.sign(payload, process.env.JWT_SECRET, { 
+  const accessToken = jwt.sign(payload, process.env.JWT_SECRET || 'fallback-secret', { 
     expiresIn: '24h',
-    issuer: 'clinica-estetica',
+    issuer: 'belleza-estetica',
     audience: 'mobile-app'
   });
   
   const refreshToken = jwt.sign(
-    { userId: payload.userId || payload.professionalId || payload.adminId, type: 'refresh' },
-    process.env.JWT_REFRESH_SECRET,
-    { expiresIn: '30d', issuer: 'clinica-estetica' }
+    { 
+      userId: payload.userId || payload.professionalId, 
+      type: 'refresh' 
+    },
+    process.env.JWT_REFRESH_SECRET || 'fallback-refresh-secret',
+    { expiresIn: '30d', issuer: 'belleza-estetica' }
   );
   
   return { accessToken, refreshToken };
@@ -25,7 +33,7 @@ const generateTokens = (payload) => {
 
 class AuthController {
   // ========================================================================
-  // PATIENT LOGIN
+  // PATIENT LOGIN - CORREGIDO PARA SCHEMA
   // ========================================================================
   static async patientLogin(req, res) {
     try {
@@ -33,35 +41,39 @@ class AuthController {
       
       console.log(`🏃‍♀️ Patient login: ${email} at ${clinicSlug || 'any'}`);
       
+      // Buscar usuario con clínica relacionada
       const user = await prisma.user.findFirst({
         where: {
           email: email.toLowerCase(),
-          isActive: true,
-          ...(clinicSlug && { clinic: { slug: clinicSlug } })
+          isActive: true
         },
-        include: { clinic: true, userProfile: true }
+        include: { 
+          primaryClinic: true  // ✅ CORREGIDO: usar primaryClinic según schema
+        }
       });
 
       if (!user) {
         return res.status(401).json({
           success: false,
           error: {
-            message: clinicSlug ? 'Usuario no encontrado en esta clínica' : 'Usuario no encontrado',
+            message: 'Usuario no encontrado',
             code: 'USER_NOT_FOUND'
           }
         });
       }
 
-      if (user.role && ['admin', 'professional'].includes(user.role)) {
+      // Verificar clínica si se especifica
+      if (clinicSlug && user.primaryClinic.slug !== clinicSlug) {
         return res.status(401).json({
           success: false,
           error: {
-            message: 'Use el login correspondiente a su rol',
-            code: 'WRONG_USER_TYPE'
+            message: 'Usuario no pertenece a esta clínica',
+            code: 'WRONG_CLINIC'
           }
         });
       }
 
+      // Verificar contraseña
       if (!user.passwordHash || !await bcrypt.compare(password, user.passwordHash)) {
         return res.status(401).json({
           success: false,
@@ -69,16 +81,17 @@ class AuthController {
         });
       }
 
+      // Actualizar último login
       await prisma.user.update({
         where: { id: user.id },
-        data: { lastLogin: new Date() }
+        data: { lastLoginAt: new Date() } // ✅ CORREGIDO: campo correcto
       });
 
       const tokenPayload = {
         userId: user.id,
         email: user.email,
-        role: user.role || 'patient',
-        clinicId: user.clinicId,
+        role: 'patient',
+        clinicId: user.primaryClinicId, // ✅ CORREGIDO: campo correcto
         userType: 'patient'
       };
 
@@ -96,11 +109,12 @@ class AuthController {
             lastName: user.lastName,
             name: `${user.firstName} ${user.lastName}`,
             phone: user.phone,
-            role: user.role || 'patient',
-            profilePicture: user.profilePicture,
-            isEmailVerified: user.isEmailVerified,
-            clinic: user.clinic,
-            profile: user.userProfile
+            role: 'patient',
+            avatarUrl: user.avatarUrl, // ✅ CORREGIDO: campo correcto
+            beautyPoints: user.beautyPoints, // ✅ Incluir beauty points
+            vipStatus: user.vipStatus, // ✅ Incluir VIP status
+            loyaltyTier: user.loyaltyTier, // ✅ Incluir loyalty tier
+            clinic: user.primaryClinic
           },
           tokens: { accessToken, refreshToken, tokenType: 'Bearer', expiresIn: '24h' },
           userType: 'patient'
@@ -118,19 +132,20 @@ class AuthController {
   }
 
   // ========================================================================
-  // PROFESSIONAL LOGIN
+  // PROFESSIONAL LOGIN - CORREGIDO PARA SCHEMA
   // ========================================================================
   static async professionalLogin(req, res) {
     try {
       const { email, password, clinicSlug } = req.body;
       
+      console.log(`👨‍⚕️ Professional login: ${email} at ${clinicSlug || 'any'}`);
+      
       const professional = await prisma.professional.findFirst({
         where: {
           email: email.toLowerCase(),
-          isActive: true,
-          ...(clinicSlug && { clinic: { slug: clinicSlug } })
+          isActive: true
         },
-        include: { clinic: true, specialties: true }
+        include: { clinic: true }
       });
 
       if (!professional) {
@@ -140,6 +155,18 @@ class AuthController {
         });
       }
 
+      // Verificar clínica si se especifica
+      if (clinicSlug && professional.clinic.slug !== clinicSlug) {
+        return res.status(401).json({
+          success: false,
+          error: {
+            message: 'Profesional no pertenece a esta clínica',
+            code: 'WRONG_CLINIC'
+          }
+        });
+      }
+
+      // Verificar contraseña
       if (!professional.passwordHash || !await bcrypt.compare(password, professional.passwordHash)) {
         return res.status(401).json({
           success: false,
@@ -147,15 +174,16 @@ class AuthController {
         });
       }
 
+      // Actualizar último login
       await prisma.professional.update({
         where: { id: professional.id },
-        data: { lastLogin: new Date() }
+        data: { lastLoginAt: new Date() } // ✅ CORREGIDO: campo correcto
       });
 
       const tokenPayload = {
         professionalId: professional.id,
         email: professional.email,
-        role: 'professional',
+        role: professional.role || 'PROFESSIONAL', // ✅ CORREGIDO: usar role del schema
         clinicId: professional.clinicId,
         userType: 'professional'
       };
@@ -172,11 +200,13 @@ class AuthController {
             lastName: professional.lastName,
             name: `${professional.firstName} ${professional.lastName}`,
             phone: professional.phone,
-            role: 'professional',
-            license: professional.license,
-            specialization: professional.specialization,
-            clinic: professional.clinic,
-            specialties: professional.specialties
+            role: professional.role,
+            licenseNumber: professional.licenseNumber, // ✅ CORREGIDO: campo correcto
+            specialties: professional.specialties ? JSON.parse(professional.specialties) : [], // ✅ Parse JSON
+            experience: professional.experience,
+            rating: professional.rating,
+            avatarUrl: professional.avatarUrl,
+            clinic: professional.clinic
           },
           tokens: { accessToken, refreshToken, tokenType: 'Bearer', expiresIn: '24h' },
           userType: 'professional'
@@ -194,45 +224,42 @@ class AuthController {
   }
 
   // ========================================================================
-  // ADMIN LOGIN
+  // ADMIN LOGIN - USANDO CLINIC TABLE COMO ADMIN
   // ========================================================================
   static async adminLogin(req, res) {
     try {
       const { email, password, clinicSlug } = req.body;
       
-      const admin = await prisma.admin.findFirst({
+      console.log(`👨‍💼 Admin login: ${email} at ${clinicSlug || 'any'}`);
+      
+      // En tu schema, los admins son las clínicas mismas
+      const clinic = await prisma.clinic.findFirst({
         where: {
           email: email.toLowerCase(),
           isActive: true,
-          ...(clinicSlug && { clinic: { slug: clinicSlug } })
-        },
-        include: { clinic: true }
+          ...(clinicSlug && { slug: clinicSlug })
+        }
       });
 
-      if (!admin) {
+      if (!clinic) {
         return res.status(401).json({
           success: false,
           error: { message: 'Administrador no encontrado', code: 'ADMIN_NOT_FOUND' }
         });
       }
 
-      if (!admin.passwordHash || !await bcrypt.compare(password, admin.passwordHash)) {
+      // Verificar contraseña de clínica
+      if (!clinic.passwordHash || !await bcrypt.compare(password, clinic.passwordHash)) {
         return res.status(401).json({
           success: false,
           error: { message: 'Credenciales inválidas', code: 'INVALID_CREDENTIALS' }
         });
       }
 
-      await prisma.admin.update({
-        where: { id: admin.id },
-        data: { lastLogin: new Date() }
-      });
-
       const tokenPayload = {
-        adminId: admin.id,
-        email: admin.email,
+        clinicId: clinic.id,
+        email: clinic.email,
         role: 'admin',
-        clinicId: admin.clinicId,
         userType: 'admin'
       };
 
@@ -242,15 +269,18 @@ class AuthController {
         success: true,
         data: {
           admin: {
-            id: admin.id,
-            email: admin.email,
-            firstName: admin.firstName,
-            lastName: admin.lastName,
-            name: admin.name || `${admin.firstName} ${admin.lastName}`,
-            phone: admin.phone,
+            id: clinic.id,
+            email: clinic.email,
+            name: clinic.name,
+            phone: clinic.phone,
             role: 'admin',
-            permissions: admin.permissions,
-            clinic: admin.clinic
+            clinic: {
+              id: clinic.id,
+              name: clinic.name,
+              slug: clinic.slug,
+              city: clinic.city,
+              subscriptionPlan: clinic.subscriptionPlan
+            }
           },
           tokens: { accessToken, refreshToken, tokenType: 'Bearer', expiresIn: '24h' },
           userType: 'admin'
@@ -268,7 +298,7 @@ class AuthController {
   }
 
   // ========================================================================
-  // DEMO LOGIN
+  // DEMO LOGIN - SIMPLIFICADO
   // ========================================================================
   static async demoLogin(req, res) {
     try {
@@ -298,8 +328,10 @@ class AuthController {
             ...demoUser,
             name: `${demoUser.firstName} ${demoUser.lastName}`,
             phone: '+34 123 456 789',
-            profilePicture: null,
-            isEmailVerified: true,
+            beautyPoints: 1250,
+            vipStatus: true,
+            loyaltyTier: 'GOLD',
+            avatarUrl: null,
             clinic: {
               id: 'madrid-centro',
               name: 'Clínica Madrid Centro',
@@ -323,12 +355,13 @@ class AuthController {
   }
 
   // ========================================================================
-  // REGISTER
+  // REGISTER - CORREGIDO PARA SCHEMA
   // ========================================================================
   static async register(req, res) {
     try {
       const { firstName, lastName, email, password, phone, clinicSlug } = req.body;
       
+      // Verificar si el email ya existe
       const existingUser = await prisma.user.findUnique({
         where: { email: email.toLowerCase() }
       });
@@ -340,20 +373,45 @@ class AuthController {
         });
       }
 
-      let clinicId = null;
+      // Buscar clínica
+      let primaryClinicId = null;
+      let clinic = null;
+      
       if (clinicSlug) {
-        const clinic = await prisma.clinic.findUnique({ where: { slug: clinicSlug } });
+        clinic = await prisma.clinic.findUnique({ 
+          where: { slug: clinicSlug, isActive: true } 
+        });
+        
         if (!clinic) {
           return res.status(404).json({
             success: false,
             error: { message: 'Clínica no encontrada', code: 'CLINIC_NOT_FOUND' }
           });
         }
-        clinicId = clinic.id;
+        primaryClinicId = clinic.id;
+      } else {
+        // Si no se especifica clínica, usar la primera activa
+        clinic = await prisma.clinic.findFirst({
+          where: { isActive: true },
+          orderBy: { createdAt: 'asc' }
+        });
+        
+        if (clinic) {
+          primaryClinicId = clinic.id;
+        }
       }
 
+      if (!primaryClinicId) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'No hay clínicas disponibles', code: 'NO_CLINICS_AVAILABLE' }
+        });
+      }
+
+      // Hash de la contraseña
       const passwordHash = await bcrypt.hash(password, 12);
 
+      // Crear usuario con campos correctos del schema
       const user = await prisma.user.create({
         data: {
           firstName,
@@ -361,35 +419,27 @@ class AuthController {
           email: email.toLowerCase(),
           passwordHash,
           phone,
-          clinicId,
-          role: 'patient',
+          primaryClinicId, // ✅ CORREGIDO: usar primaryClinicId
+          beautyPoints: 100, // ✅ Bonus de registro
+          loyaltyTier: 'BRONZE', // ✅ Tier inicial
+          vipStatus: false,
           isActive: true,
-          registrationDate: new Date(),
-          authProvider: 'local'
+          isVerified: false,
+          onboardingCompleted: false,
+          privacyAccepted: true,
+          termsAccepted: true,
+          emailNotifications: true,
+          smsNotifications: false,
+          marketingNotifications: true
         },
-        include: { clinic: true }
+        include: { primaryClinic: true }
       });
-
-      // Crear perfil inicial
-      try {
-        await prisma.userProfile.create({
-          data: {
-            userId: user.id,
-            beautyPoints: 0,
-            totalSessions: 0,
-            isVip: false,
-            preferences: { notifications: true, promotions: true, reminders: true }
-          }
-        });
-      } catch (profileError) {
-        console.log('⚠️ No se pudo crear perfil inicial');
-      }
 
       const tokenPayload = {
         userId: user.id,
         email: user.email,
         role: 'patient',
-        clinicId: user.clinicId,
+        clinicId: user.primaryClinicId,
         userType: 'patient'
       };
 
@@ -406,7 +456,10 @@ class AuthController {
             name: `${user.firstName} ${user.lastName}`,
             phone: user.phone,
             role: 'patient',
-            clinic: user.clinic
+            beautyPoints: user.beautyPoints,
+            vipStatus: user.vipStatus,
+            loyaltyTier: user.loyaltyTier,
+            clinic: user.primaryClinic
           },
           tokens: { accessToken, refreshToken, tokenType: 'Bearer', expiresIn: '24h' },
           userType: 'patient'
@@ -437,23 +490,45 @@ class AuthController {
         });
       }
 
-      const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
+      const decoded = jwt.verify(
+        refreshToken, 
+        process.env.JWT_REFRESH_SECRET || 'fallback-refresh-secret'
+      );
       
       let userData = null;
       let tokenPayload = {};
 
       if (decoded.userId) {
-        userData = await prisma.user.findUnique({ where: { id: decoded.userId } });
-        tokenPayload = {
-          userId: userData.id,
-          email: userData.email,
-          role: userData.role || 'patient',
-          clinicId: userData.clinicId,
-          userType: 'patient'
-        };
+        userData = await prisma.user.findUnique({ 
+          where: { id: decoded.userId, isActive: true } 
+        });
+        
+        if (userData) {
+          tokenPayload = {
+            userId: userData.id,
+            email: userData.email,
+            role: 'patient',
+            clinicId: userData.primaryClinicId,
+            userType: 'patient'
+          };
+        }
+      } else if (decoded.professionalId) {
+        userData = await prisma.professional.findUnique({ 
+          where: { id: decoded.professionalId, isActive: true } 
+        });
+        
+        if (userData) {
+          tokenPayload = {
+            professionalId: userData.id,
+            email: userData.email,
+            role: userData.role,
+            clinicId: userData.clinicId,
+            userType: 'professional'
+          };
+        }
       }
 
-      if (!userData || !userData.isActive) {
+      if (!userData) {
         return res.status(401).json({
           success: false,
           error: { message: 'Usuario no válido', code: 'INVALID_USER' }
@@ -495,11 +570,11 @@ class AuthController {
   }
 
   // ========================================================================
-  // VALIDATE SESSION
+  // VALIDATE SESSION - CORREGIDO
   // ========================================================================
   static async validateSession(req, res) {
     try {
-      const { userId, professionalId, adminId } = req.user;
+      const { userId, professionalId, clinicId } = req.user;
       
       let userData = null;
       let userType = 'unknown';
@@ -507,19 +582,18 @@ class AuthController {
       if (userId) {
         userData = await prisma.user.findUnique({
           where: { id: userId },
-          include: { clinic: true, userProfile: true }
+          include: { primaryClinic: true }
         });
         userType = 'patient';
       } else if (professionalId) {
         userData = await prisma.professional.findUnique({
           where: { id: professionalId },
-          include: { clinic: true, specialties: true }
+          include: { clinic: true }
         });
         userType = 'professional';
-      } else if (adminId) {
-        userData = await prisma.admin.findUnique({
-          where: { id: adminId },
-          include: { clinic: true }
+      } else if (clinicId) {
+        userData = await prisma.clinic.findUnique({
+          where: { id: clinicId }
         });
         userType = 'admin';
       }
@@ -533,7 +607,12 @@ class AuthController {
 
       res.status(200).json({
         success: true,
-        data: { user: userData, userType, authenticated: true },
+        data: { 
+          user: userData, 
+          userType, 
+          authenticated: true,
+          isActive: userData.isActive !== false
+        },
         message: 'Sesión válida'
       });
 
