@@ -11,64 +11,6 @@ const router = express.Router();
 const prisma = new PrismaClient();
 
 // ============================================================================
-// MIDDLEWARE DE AUTENTICACIÓN SIMPLE ✅
-// ============================================================================
-const authenticateToken = async (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-
-  if (!token) {
-    return res.status(401).json({ 
-      success: false,
-      error: { message: 'Token requerido' }
-    });
-  }
-
-  const jwt = require('jsonwebtoken');
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'default-secret-key');
-    
-    // Usuario demo
-    if (decoded.userId === 'demo-user-123') {
-      req.user = { 
-        id: decoded.userId, 
-        userId: decoded.userId,
-        email: 'demo@bellezaestetica.com', 
-        isDemo: true,
-        vipStatus: true
-      };
-      return next();
-    }
-    
-    // Usuario real
-    const user = await prisma.user.findUnique({
-      where: { id: decoded.userId }
-    });
-    
-    if (!user) {
-      return res.status(403).json({ 
-        success: false,
-        error: { message: 'Usuario no encontrado' }
-      });
-    }
-    
-    req.user = { 
-      id: user.id,
-      userId: user.id, 
-      email: user.email, 
-      isDemo: false,
-      vipStatus: user.vipStatus || false
-    };
-    next();
-  } catch (err) {
-    return res.status(403).json({ 
-      success: false,
-      error: { message: 'Token inválido' }
-    });
-  }
-};
-
-// ============================================================================
 // RUTAS PÚBLICAS ✅
 // ============================================================================
 
@@ -211,7 +153,7 @@ router.get('/availability', asyncHandler(AppointmentController.getAvailability))
 // ============================================================================
 
 // Aplicar autenticación a todas las rutas siguientes
-router.use(verifyToken);
+router.use(authenticateToken);
 
 // 🔥 RUTA CRÍTICA 1: GET /api/appointments/dashboard
 router.get('/dashboard', asyncHandler(AppointmentController.getDashboardData));
