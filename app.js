@@ -11,7 +11,7 @@ const morgan = require('morgan');
 
 // Importar rutas principales
 const authRoutes = require('./src/routes/auth.routes');
-const treatmentRoutes = require('./src/routes/treatment.routes'); // ✅ NUEVO
+const treatmentRoutes = require('./src/routes/treatment.routes');
 
 // Importar rutas opcionales con manejo de errores
 const importOptionalRoute = (routePath, routeName) => {
@@ -20,7 +20,7 @@ const importOptionalRoute = (routePath, routeName) => {
     console.log(`✅ ${routeName} routes loaded`);
     return route;
   } catch (error) {
-    console.log(`⚠️ ${routeName} routes not found - creating fallback`);
+    console.log(`⚠️ ${routeName} routes not found - using fallback`);
     return null;
   }
 };
@@ -32,7 +32,7 @@ const beautyPointsRoutes = importOptionalRoute('./src/routes/beautyPoints.routes
 const vipRoutes = importOptionalRoute('./src/routes/vip.routes', 'VIP');
 const paymentRoutes = importOptionalRoute('./src/routes/payment.routes', 'Payment');
 const notificationsRoutes = importOptionalRoute('./src/routes/notifications.routes', 'Notifications');
-const offersRoutes = importOptionalRoute('./src/routes/offers', 'Offers');
+const offersRoutes = importOptionalRoute('./src/routes/offers.routes', 'Offers');
 const webhookRoutes = importOptionalRoute('./src/routes/webhook.routes', 'Webhook');
 
 // Middleware de errores
@@ -45,20 +45,39 @@ const app = express();
 const prisma = new PrismaClient();
 
 // ============================================================================
-// MIDDLEWARES GLOBALES
+// MIDDLEWARES GLOBALES - CONFIGURACIÓN DE PRODUCCIÓN ✅
 // ============================================================================
 
-// Seguridad
+// Seguridad mejorada para producción
 app.use(helmet({
   crossOriginEmbedderPolicy: false,
-  contentSecurityPolicy: false
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'"],
+      imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'"],
+      fontSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      mediaSrc: ["'self'"],
+      frameSrc: ["'none'"]
+    }
+  },
+  hsts: {
+    maxAge: 31536000,
+    includeSubDomains: true,
+    preload: true
+  }
 }));
 
-// CORS mejorado y más permisivo
+// CORS configurado para producción
 app.use(cors({
   origin: function (origin, callback) {
-    // Permitir solicitudes sin origen (apps móviles, Postman)
-    if (!origin) return callback(null, true);
+    // Permitir solicitudes sin origen solo en desarrollo (apps móviles, Postman)
+    if (!origin && process.env.NODE_ENV === 'development') {
+      return callback(null, true);
+    }
     
     const allowedOrigins = process.env.NODE_ENV === 'production' 
       ? (process.env.CORS_ORIGIN?.split(',') || [])
@@ -67,7 +86,7 @@ app.use(cors({
           'http://localhost:19006',
           'http://192.168.1.174:8081',
           'exp://192.168.1.174:8081',
-          // Permitir cualquier IP local en desarrollo
+          // Permitir IPs locales solo en desarrollo
           /^http:\/\/192\.168\.\d+\.\d+:\d+$/,
           /^http:\/\/10\.\d+\.\d+\.\d+:\d+$/,
           /^http:\/\/172\.16\.\d+\.\d+:\d+$/
@@ -75,7 +94,7 @@ app.use(cors({
     
     // En desarrollo, ser más permisivo
     if (process.env.NODE_ENV === 'development') {
-      if (origin.includes('192.168.') || origin.includes('localhost') || origin.includes('127.0.0.1')) {
+      if (origin && (origin.includes('192.168.') || origin.includes('localhost') || origin.includes('127.0.0.1'))) {
         return callback(null, true);
       }
     }
@@ -86,14 +105,18 @@ app.use(cors({
       return false;
     });
     
-    callback(null, isAllowed || process.env.NODE_ENV === 'development');
+    if (!isAllowed && process.env.NODE_ENV === 'production') {
+      return callback(new Error('Not allowed by CORS policy'));
+    }
+    
+    callback(null, true);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization', 'Cache-Control']
 }));
 
-// Logging para debug
+// Logging configurado por ambiente
 if (process.env.NODE_ENV === 'development') {
   app.use((req, res, next) => {
     console.log(`📡 ${req.method} ${req.originalUrl} - Origin: ${req.get('Origin') || 'No origin'}`);
@@ -101,20 +124,52 @@ if (process.env.NODE_ENV === 'development') {
   });
 }
 
-// Rate limiting más permisivo en desarrollo
+// Rate limiting más estricto en producción
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutos
-  max: process.env.NODE_ENV === 'development' ? 1000 : 100,
-  message: { success: false, error: { message: 'Demasiadas solicitudes' } },
+  max: process.env.NODE_ENV === 'production' ? 100 : 1000,
+  message: { 
+    success: false, 
+    error: { 
+      message: 'Too many requests from this IP, please try again later.',
+      retryAfter: '15 minutes'
+    } 
+  },
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => {
+    // Skip rate limiting for health checks
+    return req.path === '/health' || req.path === '/api/health';
+  }
 });
 app.use('/api/', limiter);
 
+// Rate limiting específico para login (más estricto)
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: process.env.NODE_ENV === 'production' ? 5 : 50, // 5 intentos en producción
+  message: { 
+    success: false, 
+    error: { 
+      message: 'Too many login attempts, please try again later.',
+      retryAfter: '15 minutes'
+    } 
+  },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/patient/login', authLimiter);
+
 // Body parsing - webhooks de Stripe necesitan raw body
 app.use('/api/webhooks/stripe', express.raw({ type: 'application/json' }));
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json({ 
+  limit: process.env.NODE_ENV === 'production' ? '1mb' : '10mb' 
+}));
+app.use(express.urlencoded({ 
+  extended: true, 
+  limit: process.env.NODE_ENV === 'production' ? '1mb' : '10mb' 
+}));
 
 // Compresión y logging
 app.use(compression());
@@ -147,22 +202,27 @@ app.get('/health', async (req, res) => {
   }
 });
 
-// Ruta raíz
+// Ruta raíz simplificada para producción
 app.get('/', (req, res) => {
+  const endpoints = process.env.NODE_ENV === 'development' ? {
+    health: '/health',
+    auth: '/api/auth/*',
+    clinics: '/api/clinics',
+    treatments: '/api/treatments',
+    appointments: '/api/appointments',
+    profile: '/api/user/profile',
+    docs: '/docs/postman'
+  } : {
+    health: '/health',
+    status: 'API is running'
+  };
+
   res.json({
-    message: '🏥 Belleza Estética API - Sistema Completo',
+    message: '🏥 Belleza Estética API',
     version: '2.0.0',
     status: 'active',
     timestamp: new Date().toISOString(),
-    endpoints: {
-      health: '/health',
-      auth: '/api/auth/*',
-      clinics: '/api/clinics',
-      treatments: '/api/treatments',
-      dashboard: '/api/dashboard',
-      appointments: '/api/appointments',
-      profile: '/api/user/profile'
-    }
+    endpoints
   });
 });
 
@@ -174,17 +234,19 @@ app.get('/', (req, res) => {
 app.use('/api/auth', authRoutes);
 console.log('✅ Auth routes loaded');
 
-// RUTAS DE TRATAMIENTOS - ✅ NUEVO
+// RUTAS DE TRATAMIENTOS
 app.use('/api/treatments', treatmentRoutes);
 console.log('✅ Treatment routes loaded');
 
-// RUTAS DE CLÍNICAS con fallback
+// ============================================================================
+// RUTAS DE CLÍNICAS - MEJORADAS PARA PRODUCCIÓN ✅
+// ============================================================================
 app.get('/api/clinics', async (req, res) => {
   try {
     let clinics = [];
     
     try {
-      // Intentar obtener de la base de datos
+      // Verificar si existe la tabla Clinic
       const tableExists = await prisma.$queryRaw`
         SELECT table_name 
         FROM information_schema.tables 
@@ -196,18 +258,26 @@ app.get('/api/clinics', async (req, res) => {
         clinics = await prisma.clinic.findMany({
           where: { isActive: true },
           select: {
-            id: true, name: true, slug: true, city: true,
-            logoUrl: true, address: true, phone: true, description: true
+            id: true, 
+            name: true, 
+            slug: true, 
+            city: true,
+            logoUrl: true, 
+            address: true, 
+            phone: true, 
+            description: true,
+            createdAt: true
           },
           orderBy: { name: 'asc' }
         });
+        console.log(`✅ Found ${clinics.length} clinics in database`);
       }
     } catch (dbError) {
-      console.log('⚠️ No se pudo consultar tabla Clinic, usando datos demo');
+      console.warn('⚠️ Database error fetching clinics:', dbError.message);
     }
     
-    // Si no hay clínicas en BD, usar datos demo
-    if (clinics.length === 0) {
+    // Solo usar datos demo en desarrollo si no hay clínicas
+    if (clinics.length === 0 && process.env.NODE_ENV === 'development') {
       clinics = [
         {
           id: 'madrid-centro',
@@ -217,7 +287,8 @@ app.get('/api/clinics', async (req, res) => {
           address: 'Calle Gran Vía, 28, Madrid',
           phone: '+34 91 123 4567',
           logoUrl: null,
-          description: 'Centro especializado en tratamientos estéticos'
+          description: 'Centro especializado en tratamientos estéticos',
+          createdAt: new Date('2024-01-01').toISOString()
         },
         {
           id: 'barcelona-eixample',
@@ -227,7 +298,8 @@ app.get('/api/clinics', async (req, res) => {
           address: 'Passeig de Gràcia, 95, Barcelona',
           phone: '+34 93 234 5678',
           logoUrl: null,
-          description: 'Tratamientos de belleza y bienestar'
+          description: 'Tratamientos de belleza y bienestar',
+          createdAt: new Date('2024-01-15').toISOString()
         }
       ];
     }
@@ -236,19 +308,24 @@ app.get('/api/clinics', async (req, res) => {
       success: true,
       data: clinics,
       total: clinics.length,
-      message: clinics.length === 0 ? 'Datos demo - configura la migración' : undefined
+      ...(clinics.length === 0 && process.env.NODE_ENV === 'development' && {
+        message: 'Using demo data - run database migrations'
+      })
     });
     
   } catch (error) {
-    console.error('❌ Error en GET /api/clinics:', error);
+    console.error('❌ Error in GET /api/clinics:', error);
     res.status(500).json({
       success: false,
-      error: { message: 'Error obteniendo clínicas' }
+      error: { 
+        message: 'Internal server error',
+        ...(process.env.NODE_ENV === 'development' && { details: error.message })
+      }
     });
   }
 });
 
-// RUTAS DE CLÍNICA ESPECÍFICA
+// RUTAS DE CLÍNICA ESPECÍFICA - MEJORADAS
 app.get('/api/clinics/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -260,17 +337,59 @@ app.get('/api/clinics/:id', async (req, res) => {
         where: { 
           OR: [{ id: id }, { slug: id }],
           isActive: true 
+        },
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          city: true,
+          address: true,
+          phone: true,
+          description: true,
+          logoUrl: true,
+          website: true,
+          email: true,
+          schedule: true,
+          createdAt: true
         }
       });
+      
+      if (clinic) {
+        console.log(`✅ Found clinic: ${clinic.name}`);
+      }
     } catch (dbError) {
-      console.log('⚠️ Error consultando BD, usando datos demo');
+      console.warn('⚠️ Database error fetching clinic:', dbError.message);
     }
     
-    // Fallback a datos demo
-    if (!clinic) {
+    // Fallback solo en desarrollo
+    if (!clinic && process.env.NODE_ENV === 'development') {
       const demoClinics = {
-        'madrid-centro': { id: 'madrid-centro', name: 'Clínica Madrid Centro', city: 'Madrid' },
-        'barcelona-eixample': { id: 'barcelona-eixample', name: 'Clínica Barcelona Eixample', city: 'Barcelona' }
+        'madrid-centro': { 
+          id: 'madrid-centro', 
+          name: 'Clínica Madrid Centro', 
+          slug: 'madrid-centro',
+          city: 'Madrid',
+          address: 'Calle Gran Vía, 28, Madrid',
+          phone: '+34 91 123 4567',
+          description: 'Centro especializado en tratamientos estéticos',
+          logoUrl: null,
+          website: 'https://madrid-centro.com',
+          email: 'info@madrid-centro.com',
+          createdAt: new Date('2024-01-01').toISOString()
+        },
+        'barcelona-eixample': { 
+          id: 'barcelona-eixample', 
+          name: 'Clínica Barcelona Eixample', 
+          slug: 'barcelona-eixample',
+          city: 'Barcelona',
+          address: 'Passeig de Gràcia, 95, Barcelona',
+          phone: '+34 93 234 5678',
+          description: 'Tratamientos de belleza y bienestar',
+          logoUrl: null,
+          website: 'https://barcelona-eixample.com',
+          email: 'info@barcelona-eixample.com',
+          createdAt: new Date('2024-01-15').toISOString()
+        }
       };
       clinic = demoClinics[id];
     }
@@ -278,28 +397,46 @@ app.get('/api/clinics/:id', async (req, res) => {
     if (!clinic) {
       return res.status(404).json({
         success: false,
-        error: { message: 'Clínica no encontrada' }
+        error: { message: 'Clinic not found' }
       });
     }
     
-    res.json({ success: true, data: clinic });
+    res.json({ 
+      success: true, 
+      data: clinic 
+    });
     
   } catch (error) {
-    console.error('❌ Error en GET /api/clinics/:id:', error);
+    console.error('❌ Error in GET /api/clinics/:id:', error);
     res.status(500).json({
       success: false,
-      error: { message: 'Error obteniendo clínica' }
+      error: { 
+        message: 'Internal server error',
+        ...(process.env.NODE_ENV === 'development' && { details: error.message })
+      }
     });
   }
 });
 
 console.log('✅ Clinic routes loaded');
 
-// RUTAS OPCIONALES CON FALLBACKS
+// ============================================================================
+// RUTAS OPCIONALES CON FALLBACKS MEJORADOS ✅
+// ============================================================================
+
+// DASHBOARD ROUTES
 if (dashboardRoutes) {
   app.use('/api/dashboard', dashboardRoutes);
+  console.log('✅ Dashboard routes loaded');
 } else {
   app.get('/api/dashboard', (req, res) => {
+    if (process.env.NODE_ENV === 'production') {
+      return res.status(501).json({
+        success: false,
+        error: { message: 'Dashboard service not implemented' }
+      });
+    }
+    
     res.json({
       success: true,
       data: {
@@ -311,142 +448,149 @@ if (dashboardRoutes) {
       message: 'Dashboard fallback - implement dashboard.routes.js'
     });
   });
+  console.log('⚠️ Dashboard fallback loaded');
 }
 
+// APPOINTMENT ROUTES - CRÍTICAS
 if (appointmentRoutes) {
   app.use('/api/appointments', appointmentRoutes);
+  console.log('✅ Appointment routes loaded');
 } else {
-  // FALLBACK CRÍTICO PARA APPOINTMENTS
-  const appointmentRouter = express.Router();
-  
-  // Dashboard data para NextAppointmentCard
-  appointmentRouter.get('/dashboard', (req, res) => {
-    res.json({
-      success: true,
-      data: {
-        nextAppointment: {
-          id: 'apt-demo-123',
-          date: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // Mañana
-          treatment: {
-            name: 'Limpieza Facial Profunda',
-            duration: 60,
-            price: 7500
-          },
-          status: 'confirmed',
-          professional: {
-            name: 'María González',
-            avatar: null
-          },
-          location: {
-            name: 'Clínica Madrid Centro',
-            address: 'Calle Gran Vía, 28'
-          }
+  // Fallback mínimo para appointments - solo en desarrollo
+  if (process.env.NODE_ENV === 'development') {
+    const appointmentFallbackRouter = express.Router();
+    
+    appointmentFallbackRouter.get('/health', (req, res) => {
+      res.json({
+        success: true,
+        message: 'Appointment routes fallback - implement appointment.routes.js',
+        timestamp: new Date().toISOString()
+      });
+    });
+    
+    appointmentFallbackRouter.get('/dashboard', (req, res) => {
+      res.json({
+        success: true,
+        data: {
+          nextAppointment: null,
+          featuredTreatments: [],
+          user: { beautyPoints: 0, vipStatus: false },
+          todayAppointments: 0
         },
-        featuredTreatments: [
-          { id: 't1', name: 'Masaje Relajante', price: 5000, image: null },
-          { id: 't2', name: 'Tratamiento Antiedad', price: 8500, image: null }
-        ],
-        todayAppointments: 1,
-        user: {
-          beautyPoints: 1250,
-          vipStatus: true
-        }
-      },
-      message: 'Dashboard fallback - implement appointment.routes.js'
+        message: 'Appointment dashboard fallback'
+      });
     });
-  });
-  
-  // Lista de citas del usuario
-  appointmentRouter.get('/user', (req, res) => {
-    res.json({
-      success: true,
-      data: [
-        {
-          id: 'apt-demo-123',
-          date: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-          treatment: { name: 'Limpieza Facial Profunda', duration: 60 },
-          status: 'confirmed',
-          professional: { name: 'María González' }
-        }
-      ],
-      message: 'User appointments fallback'
+    
+    appointmentFallbackRouter.get('/user', (req, res) => {
+      res.json({
+        success: true,
+        data: { appointments: [] },
+        message: 'User appointments fallback'
+      });
     });
-  });
-  
-  app.use('/api/appointments', appointmentRouter);
+    
+    app.use('/api/appointments', appointmentFallbackRouter);
+    console.log('⚠️ Appointment fallback loaded (development only)');
+  } else {
+    // En producción, retornar error 501 para endpoints no implementados
+    app.use('/api/appointments', (req, res) => {
+      res.status(501).json({
+        success: false,
+        error: { message: 'Appointment service not implemented' }
+      });
+    });
+    console.log('❌ Appointment service not available in production');
+  }
 }
 
+// PROFILE ROUTES
 if (profileRoutes) {
   app.use('/api/user', profileRoutes);
+  console.log('✅ Profile routes loaded');
 } else {
-  // FALLBACK CRÍTICO PARA PROFILE
-  app.get('/api/user/profile', (req, res) => {
-    res.json({
-      success: true,
-      data: {
-        id: 'demo-user-123',
-        firstName: 'Ana',
-        lastName: 'García',
-        email: 'ana.garcia@example.com',
-        beautyPoints: 1250,
-        vipStatus: true,
-        phone: '+34 123 456 789',
-        avatar: null,
-        registrationDate: new Date('2024-01-15').toISOString(),
-        totalAppointments: 12,
-        favoriteServices: ['Limpieza Facial', 'Masaje Relajante']
-      },
-      message: 'Profile fallback - implement profile.routes.js'
+  if (process.env.NODE_ENV === 'development') {
+    app.get('/api/user/profile', (req, res) => {
+      res.json({
+        success: true,
+        data: {
+          id: 'demo-user-123',
+          firstName: 'Demo',
+          lastName: 'User',
+          email: 'demo@example.com',
+          beautyPoints: 0,
+          vipStatus: false,
+          phone: null,
+          avatar: null,
+          registrationDate: new Date().toISOString(),
+          totalAppointments: 0,
+          favoriteServices: []
+        },
+        message: 'Profile fallback - implement profile.routes.js'
+      });
     });
-  });
+    console.log('⚠️ Profile fallback loaded');
+  } else {
+    app.use('/api/user', (req, res) => {
+      res.status(501).json({
+        success: false,
+        error: { message: 'User service not implemented' }
+      });
+    });
+  }
 }
 
-// RUTAS OPCIONALES ADICIONALES
+// BEAUTY POINTS ROUTES
 if (beautyPointsRoutes) {
   app.use('/api/beauty-points', beautyPointsRoutes);
+  console.log('✅ Beauty Points routes loaded');
 } else {
   app.get('/api/beauty-points', (req, res) => {
+    if (process.env.NODE_ENV === 'production') {
+      return res.status(501).json({
+        success: false,
+        error: { message: 'Beauty Points service not implemented' }
+      });
+    }
+    
     res.json({
       success: true,
       data: {
-        currentPoints: 1250,
-        history: [
-          { date: '2025-08-01', points: 100, description: 'Cita completada', type: 'earned' },
-          { date: '2025-07-28', points: -200, description: 'Descuento aplicado', type: 'spent' }
-        ],
-        availableRewards: [
-          { id: 'r1', name: 'Descuento 10%', cost: 500, description: '10% en próxima cita' },
-          { id: 'r2', name: 'Tratamiento gratis', cost: 1000, description: 'Limpieza facial gratuita' }
-        ]
+        currentPoints: 0,
+        history: [],
+        availableRewards: []
       },
       message: 'Beauty points fallback'
     });
   });
 }
 
+// VIP ROUTES
 if (vipRoutes) {
   app.use('/api/vip', vipRoutes);
+  console.log('✅ VIP routes loaded');
 } else {
   app.get('/api/vip/benefits', (req, res) => {
+    if (process.env.NODE_ENV === 'production') {
+      return res.status(501).json({
+        success: false,
+        error: { message: 'VIP service not implemented' }
+      });
+    }
+    
     res.json({
       success: true,
       data: {
-        isVip: true,
-        benefits: [
-          'Descuentos exclusivos del 15%',
-          'Prioridad en reservas',
-          'Acceso a tratamientos premium',
-          'Consultas gratuitas'
-        ],
-        pointsToNextLevel: 0,
-        currentLevel: 'VIP Gold'
+        isVip: false,
+        benefits: [],
+        pointsToNextLevel: 1000,
+        currentLevel: 'Standard'
       },
       message: 'VIP benefits fallback'
     });
   });
 }
 
-// Cargar rutas restantes con fallbacks silenciosos
+// Cargar rutas restantes
 [
   { routes: paymentRoutes, path: '/api/payments', name: 'Payment' },
   { routes: notificationsRoutes, path: '/api/notifications', name: 'Notifications' },
@@ -457,102 +601,90 @@ if (vipRoutes) {
     app.use(path, routes);
     console.log(`✅ ${name} routes loaded`);
   } else {
-    console.log(`⚠️ ${name} routes not found - skipping`);
+    // En producción, retornar 501 para servicios no implementados
+    if (process.env.NODE_ENV === 'production') {
+      app.use(path, (req, res) => {
+        res.status(501).json({
+          success: false,
+          error: { message: `${name} service not implemented` }
+        });
+      });
+    }
+    console.log(`⚠️ ${name} routes not found`);
   }
 });
 
 // ============================================================================
-// ENDPOINT DE TESTING
+// TESTING Y DOCUMENTACIÓN - SOLO EN DESARROLLO ✅
 // ============================================================================
-app.get('/api/test-endpoints', (req, res) => {
-  res.json({
-    success: true,
-    timestamp: new Date().toISOString(),
-    criticalEndpoints: [
-      { name: 'Auth Health', path: '/api/auth/health', status: 'active' },
-      { name: 'Patient Login', path: '/api/auth/patient/login', status: 'fixed' },
-      { name: 'Demo Login', path: '/api/auth/demo-login', status: 'active' },
-      { name: 'Clinics List', path: '/api/clinics', status: 'active' },
-      { name: 'Treatments List', path: '/api/treatments', status: 'active' }, // ✅ NUEVO
-      { name: 'Dashboard Data', path: '/api/appointments/dashboard', status: 'active' },
-      { name: 'User Profile', path: '/api/user/profile', status: 'active' }
-    ],
-    testFlow: [
-      '1. POST /api/auth/demo-login (get token)',
-      '2. GET /api/treatments (verify treatments data)', // ✅ NUEVO
-      '3. GET /api/appointments/dashboard (verify NextAppointment data)',
-      '4. GET /api/user/profile (verify user data)',
-      '5. GET /api/clinics (verify clinics list)'
-    ]
+if (process.env.NODE_ENV === 'development') {
+  app.get('/api/test-endpoints', (req, res) => {
+    res.json({
+      success: true,
+      timestamp: new Date().toISOString(),
+      environment: 'development',
+      criticalEndpoints: [
+        { name: 'Auth Health', path: '/api/auth/health', status: 'active' },
+        { name: 'Patient Login', path: '/api/auth/patient/login', status: 'active' },
+        { name: 'Demo Login', path: '/api/auth/demo-login', status: 'active' },
+        { name: 'Clinics List', path: '/api/clinics', status: 'active' },
+        { name: 'Treatments List', path: '/api/treatments', status: 'active' },
+        { name: 'Appointments', path: '/api/appointments/*', status: appointmentRoutes ? 'active' : 'fallback' },
+        { name: 'User Profile', path: '/api/user/profile', status: profileRoutes ? 'active' : 'fallback' }
+      ],
+      testFlow: [
+        '1. POST /api/auth/demo-login (get token)',
+        '2. GET /api/treatments (verify treatments)',
+        '3. GET /api/clinics (verify clinics)',
+        '4. GET /api/appointments/dashboard (if implemented)',
+        '5. GET /api/user/profile (if implemented)'
+      ]
+    });
   });
-});
 
-// ============================================================================
-// DOCUMENTACIÓN SIMPLIFICADA
-// ============================================================================
-app.get('/docs/postman', (req, res) => {
-  res.json({
-    name: 'Belleza Estética API v2.0',
-    baseUrl: `${req.protocol}://${req.get('host')}/api`,
-    criticalEndpoints: [
-      {
-        name: 'Demo Login',
-        method: 'POST',
-        url: '/api/auth/demo-login',
-        body: {},
-        description: 'Login instantáneo para testing'
-      },
-      {
-        name: 'Patient Login', 
-        method: 'POST',
-        url: '/api/auth/patient/login',
-        body: {
-          email: 'ana.garcia@example.com',
-          password: 'password123',
-          clinicSlug: 'madrid-centro'
+  app.get('/docs/postman', (req, res) => {
+    res.json({
+      name: 'Belleza Estética API v2.0',
+      baseUrl: `${req.protocol}://${req.get('host')}/api`,
+      environment: 'development',
+      criticalEndpoints: [
+        {
+          name: 'Demo Login',
+          method: 'POST',
+          url: '/api/auth/demo-login',
+          body: {},
+          description: 'Quick login for testing'
         },
-        description: 'Login normal de paciente - CORREGIDO'
-      },
-      {
-        name: 'Treatments List', // ✅ NUEVO
-        method: 'GET',
-        url: '/api/treatments',
-        description: 'Lista completa de tratamientos disponibles'
-      },
-      {
-        name: 'Dashboard Data',
-        method: 'GET',
-        url: '/api/appointments/dashboard',
-        headers: { 'Authorization': 'Bearer <token>' },
-        description: 'Datos para NextAppointmentCard'
-      },
-      {
-        name: 'User Profile',
-        method: 'GET',
-        url: '/api/user/profile',
-        headers: { 'Authorization': 'Bearer <token>' },
-        description: 'Perfil con beautyPoints'
-      },
-      {
-        name: 'Clinics List',
-        method: 'GET',
-        url: '/api/clinics',
-        description: 'Lista de clínicas disponibles'
-      }
-    ],
-    fixes: [
-      '✅ Eliminado filtro restrictivo role: "user" en patient login',
-      '✅ Añadida verificación de tipo de usuario',
-      '✅ Fallbacks implementados para todos los endpoints críticos',
-      '✅ CORS más permisivo para desarrollo',
-      '✅ Manejo de errores mejorado',
-      '✅ Rutas de tratamientos agregadas' // ✅ NUEVO
-    ]
+        {
+          name: 'Patient Login', 
+          method: 'POST',
+          url: '/api/auth/patient/login',
+          body: {
+            email: 'user@example.com',
+            password: 'password123',
+            clinicSlug: 'madrid-centro'
+          },
+          description: 'Patient login'
+        },
+        {
+          name: 'Treatments List',
+          method: 'GET',
+          url: '/api/treatments',
+          description: 'Available treatments'
+        },
+        {
+          name: 'Clinics List',
+          method: 'GET',
+          url: '/api/clinics',
+          description: 'Available clinics'
+        }
+      ]
+    });
   });
-});
+}
 
 // ============================================================================
-// MANEJO DE ERRORES
+// MANEJO DE ERRORES - MEJORADO ✅
 // ============================================================================
 
 // Rutas no encontradas
@@ -563,21 +695,24 @@ app.use('*', (req, res) => {
     res.status(404).json({
       success: false,
       error: {
-        message: 'Endpoint no encontrado',
+        message: 'Endpoint not found',
         path: req.originalUrl,
         method: req.method
       },
-      availableEndpoints: {
-        auth: '/api/auth/* (login corregido)',
-        clinics: '/api/clinics',
-        treatments: '/api/treatments', // ✅ NUEVO
-        appointments: '/api/appointments/dashboard, /api/appointments/user',
-        profile: '/api/user/profile',
-        documentation: '/docs/postman'
-      }
+      ...(process.env.NODE_ENV === 'development' && {
+        availableEndpoints: {
+          auth: '/api/auth/*',
+          clinics: '/api/clinics',
+          treatments: '/api/treatments',
+          documentation: '/docs/postman (dev only)'
+        }
+      })
     });
   } else {
-    res.redirect('/?info=api-redirect');
+    res.status(404).json({
+      success: false,
+      error: { message: 'Page not found' }
+    });
   }
 });
 
@@ -585,17 +720,17 @@ app.use('*', (req, res) => {
 app.use(errorHandler);
 
 // ============================================================================
-// INICIALIZACIÓN Y GRACEFUL SHUTDOWN
+// GRACEFUL SHUTDOWN ✅
 // ============================================================================
 const gracefulShutdown = async (signal) => {
-  console.log(`\n📡 Recibida señal ${signal}. Cerrando aplicación...`);
+  console.log(`\n📡 Received ${signal}. Shutting down gracefully...`);
   
   try {
     await prisma.$disconnect();
-    console.log('✅ Conexión a Prisma cerrada');
+    console.log('✅ Prisma connection closed');
     process.exit(0);
   } catch (error) {
-    console.error('❌ Error durante cierre:', error);
+    console.error('❌ Error during shutdown:', error);
     process.exit(1);
   }
 };
@@ -603,58 +738,90 @@ const gracefulShutdown = async (signal) => {
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('unhandledRejection', (reason, promise) => {
-  console.error('❌ Unhandled Rejection:', reason);
+  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+  if (process.env.NODE_ENV === 'production') {
+    process.exit(1);
+  }
 });
 
-// Inicialización de base de datos
+process.on('uncaughtException', (error) => {
+  console.error('❌ Uncaught Exception:', error);
+  if (process.env.NODE_ENV === 'production') {
+    process.exit(1);
+  }
+});
+
+// ============================================================================
+// INICIALIZACIÓN DE BASE DE DATOS ✅
+// ============================================================================
 const initializeDatabase = async () => {
   try {
-    console.log('🔄 Verificando conexión a base de datos...');
+    console.log('🔄 Checking database connection...');
     await prisma.$connect();
-    console.log('✅ Conexión a base de datos establecida');
+    console.log('✅ Database connection established');
     
-    // Verificar tablas principales
-    try {
-      const tablesResult = await prisma.$queryRaw`
-        SELECT table_name 
-        FROM information_schema.tables 
-        WHERE table_schema = 'public' 
-        AND table_name IN ('User', 'Clinic', 'Treatment', 'Appointment')
-      `;
-      
-      const tables = Array.isArray(tablesResult) ? tablesResult : [tablesResult];
-      console.log(`🎯 Tablas verificadas: ${tables.length}/4`);
-      
-      if (tables.length < 4) {
-        console.log('⚠️ Faltan tablas. Ejecuta: npx prisma migrate dev');
+    // Verificar tablas principales solo en desarrollo
+    if (process.env.NODE_ENV === 'development') {
+      try {
+        const tablesResult = await prisma.$queryRaw`
+          SELECT table_name 
+          FROM information_schema.tables 
+          WHERE table_schema = 'public' 
+          AND table_name IN ('User', 'Clinic', 'Treatment', 'Appointment', 'Professional')
+        `;
+        
+        const tables = Array.isArray(tablesResult) ? tablesResult : [tablesResult];
+        console.log(`🎯 Tables verified: ${tables.length}/5`);
+        
+        if (tables.length < 5) {
+          console.log('⚠️ Missing tables. Run: npx prisma migrate dev');
+        }
+      } catch (dbError) {
+        console.log('⚠️ Could not verify tables - fallbacks will be used');
       }
-    } catch (dbError) {
-      console.log('⚠️ No se pudieron verificar tablas - usando fallbacks');
     }
     
   } catch (error) {
-    console.error('❌ Error conectando a base de datos:', error.message);
-    console.log('💡 Usando fallbacks para desarrollo');
+    console.error('❌ Database connection error:', error.message);
+    if (process.env.NODE_ENV === 'production') {
+      console.error('💥 Cannot start without database in production');
+      process.exit(1);
+    } else {
+      console.log('💡 Using fallbacks for development');
+    }
   }
 };
 
-// Inicialización completa
+// ============================================================================
+// INICIALIZACIÓN COMPLETA ✅
+// ============================================================================
 const initializeApp = async () => {
-  console.log('🚀 Iniciando aplicación v2.0...');
+  console.log(`🚀 Starting Belleza Estética API v2.0 (${process.env.NODE_ENV || 'development'})...`);
   
   await initializeDatabase();
   
-  console.log('🎯 Aplicación lista:');
-  console.log('   ✅ Auth login CORREGIDO');
-  console.log('   ✅ Treatment routes AGREGADAS'); // ✅ NUEVO
-  console.log('   ✅ Fallbacks implementados');
-  console.log('   ✅ NextAppointmentCard soportado');
-  console.log('   📚 Docs: GET /docs/postman');
-  console.log('   🧪 Test: POST /api/auth/demo-login');
+  const port = process.env.PORT || 3001;
+  app.listen(port, () => {
+    console.log('🎯 Application ready:');
+    console.log(`   🌐 Server: http://localhost:${port}`);
+    console.log('   ✅ Auth routes: LOADED');
+    console.log('   ✅ Treatment routes: LOADED');
+    console.log('   ✅ Clinic routes: LOADED');
+    console.log(`   📊 Appointment routes: ${appointmentRoutes ? 'LOADED' : 'FALLBACK'}`);
+    console.log(`   👤 Profile routes: ${profileRoutes ? 'LOADED' : 'FALLBACK'}`);
+    console.log('   🔒 Security: ENABLED');
+    console.log('   📡 CORS: CONFIGURED');
+    
+    if (process.env.NODE_ENV === 'development') {
+      console.log('   📚 Docs: GET /docs/postman');
+      console.log('   🧪 Test: GET /api/test-endpoints');
+    }
+  });
 };
 
 initializeApp().catch(error => {
-  console.error('❌ Error durante inicialización:', error);
+  console.error('❌ Failed to initialize application:', error);
+  process.exit(1);
 });
 
 module.exports = app;
