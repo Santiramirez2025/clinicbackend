@@ -11,6 +11,7 @@ const morgan = require('morgan');
 
 // Importar rutas principales
 const authRoutes = require('./src/routes/auth.routes');
+const treatmentRoutes = require('./src/routes/treatment.routes'); // ✅ NUEVO
 
 // Importar rutas opcionales con manejo de errores
 const importOptionalRoute = (routePath, routeName) => {
@@ -157,6 +158,7 @@ app.get('/', (req, res) => {
       health: '/health',
       auth: '/api/auth/*',
       clinics: '/api/clinics',
+      treatments: '/api/treatments',
       dashboard: '/api/dashboard',
       appointments: '/api/appointments',
       profile: '/api/user/profile'
@@ -171,6 +173,10 @@ app.get('/', (req, res) => {
 // RUTAS DE AUTENTICACIÓN (CRÍTICAS)
 app.use('/api/auth', authRoutes);
 console.log('✅ Auth routes loaded');
+
+// RUTAS DE TRATAMIENTOS - ✅ NUEVO
+app.use('/api/treatments', treatmentRoutes);
+console.log('✅ Treatment routes loaded');
 
 // RUTAS DE CLÍNICAS con fallback
 app.get('/api/clinics', async (req, res) => {
@@ -367,19 +373,6 @@ if (appointmentRoutes) {
     });
   });
   
-  // Lista de tratamientos
-  appointmentRouter.get('/treatments', (req, res) => {
-    res.json({
-      success: true,
-      data: [
-        { id: 't1', name: 'Limpieza Facial', duration: 60, price: 5000, category: 'Facial' },
-        { id: 't2', name: 'Masaje Relajante', duration: 90, price: 7500, category: 'Corporal' },
-        { id: 't3', name: 'Tratamiento Antiedad', duration: 75, price: 8500, category: 'Facial' }
-      ],
-      message: 'Treatments fallback'
-    });
-  });
-  
   app.use('/api/appointments', appointmentRouter);
 }
 
@@ -480,15 +473,16 @@ app.get('/api/test-endpoints', (req, res) => {
       { name: 'Patient Login', path: '/api/auth/patient/login', status: 'fixed' },
       { name: 'Demo Login', path: '/api/auth/demo-login', status: 'active' },
       { name: 'Clinics List', path: '/api/clinics', status: 'active' },
+      { name: 'Treatments List', path: '/api/treatments', status: 'active' }, // ✅ NUEVO
       { name: 'Dashboard Data', path: '/api/appointments/dashboard', status: 'active' },
-      { name: 'User Profile', path: '/api/user/profile', status: 'active' },
-      { name: 'Treatments', path: '/api/appointments/treatments', status: 'active' }
+      { name: 'User Profile', path: '/api/user/profile', status: 'active' }
     ],
     testFlow: [
       '1. POST /api/auth/demo-login (get token)',
-      '2. GET /api/appointments/dashboard (verify NextAppointment data)',
-      '3. GET /api/user/profile (verify user data)',
-      '4. GET /api/clinics (verify clinics list)'
+      '2. GET /api/treatments (verify treatments data)', // ✅ NUEVO
+      '3. GET /api/appointments/dashboard (verify NextAppointment data)',
+      '4. GET /api/user/profile (verify user data)',
+      '5. GET /api/clinics (verify clinics list)'
     ]
   });
 });
@@ -520,6 +514,12 @@ app.get('/docs/postman', (req, res) => {
         description: 'Login normal de paciente - CORREGIDO'
       },
       {
+        name: 'Treatments List', // ✅ NUEVO
+        method: 'GET',
+        url: '/api/treatments',
+        description: 'Lista completa de tratamientos disponibles'
+      },
+      {
         name: 'Dashboard Data',
         method: 'GET',
         url: '/api/appointments/dashboard',
@@ -545,7 +545,8 @@ app.get('/docs/postman', (req, res) => {
       '✅ Añadida verificación de tipo de usuario',
       '✅ Fallbacks implementados para todos los endpoints críticos',
       '✅ CORS más permisivo para desarrollo',
-      '✅ Manejo de errores mejorado'
+      '✅ Manejo de errores mejorado',
+      '✅ Rutas de tratamientos agregadas' // ✅ NUEVO
     ]
   });
 });
@@ -569,6 +570,7 @@ app.use('*', (req, res) => {
       availableEndpoints: {
         auth: '/api/auth/* (login corregido)',
         clinics: '/api/clinics',
+        treatments: '/api/treatments', // ✅ NUEVO
         appointments: '/api/appointments/dashboard, /api/appointments/user',
         profile: '/api/user/profile',
         documentation: '/docs/postman'
@@ -644,6 +646,7 @@ const initializeApp = async () => {
   
   console.log('🎯 Aplicación lista:');
   console.log('   ✅ Auth login CORREGIDO');
+  console.log('   ✅ Treatment routes AGREGADAS'); // ✅ NUEVO
   console.log('   ✅ Fallbacks implementados');
   console.log('   ✅ NextAppointmentCard soportado');
   console.log('   📚 Docs: GET /docs/postman');

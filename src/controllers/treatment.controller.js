@@ -1,13 +1,14 @@
 // ============================================================================
-// src/controllers/treatment.controller.js - CONTROLADOR DE TRATAMIENTOS
+// src/controllers/treatment.controller.js - CONTROLADOR DE TRATAMIENTOS CORREGIDO ✅
 // ============================================================================
 const { PrismaClient } = require('@prisma/client');
-const { AppError } = require('../utils/errors');
 
 const prisma = new PrismaClient();
 
 class TreatmentController {
-  // Obtener todos los tratamientos con filtros
+  // ============================================================================
+  // OBTENER TODOS LOS TRATAMIENTOS
+  // ============================================================================
   static async getAllTreatments(req, res, next) {
     try {
       const { 
@@ -21,8 +22,14 @@ class TreatmentController {
         offset = 0 
       } = req.query;
 
+      console.log('💊 Getting all treatments with filters:', {
+        clinicId, category, isVipExclusive, search, limit, offset
+      });
+
       // Construir filtros dinámicos
-      const whereClause = {};
+      const whereClause = {
+        isActive: true
+      };
       
       if (clinicId) {
         whereClause.clinicId = clinicId;
@@ -45,33 +52,39 @@ class TreatmentController {
       if (search) {
         whereClause.OR = [
           { name: { contains: search, mode: 'insensitive' } },
-          { description: { contains: search, mode: 'insensitive' } }
+          { description: { contains: search, mode: 'insensitive' } },
+          { shortDescription: { contains: search, mode: 'insensitive' } }
         ];
       }
 
       // Obtener tratamientos con información de clínica
-      const treatments = await prisma.treatment.findMany({
-        where: whereClause,
-        include: {
-          clinic: {
-            select: {
-              id: true,
-              name: true,
-              address: true,
-              phone: true
+      const [treatments, total] = await Promise.all([
+        prisma.treatment.findMany({
+          where: whereClause,
+          include: {
+            clinic: {
+              select: {
+                id: true,
+                name: true,
+                address: true,
+                phone: true,
+                city: true
+              }
             }
-          }
-        },
-        orderBy: [
-          { isVipExclusive: 'desc' }, // VIP primero
-          { category: 'asc' },
-          { price: 'asc' }
-        ],
-        take: parseInt(limit),
-        skip: parseInt(offset)
-      });
+          },
+          orderBy: [
+            { isFeatured: 'desc' },
+            { isVipExclusive: 'desc' },
+            { category: 'asc' },
+            { price: 'asc' }
+          ],
+          take: parseInt(limit),
+          skip: parseInt(offset)
+        }),
+        prisma.treatment.count({ where: whereClause })
+      ]);
 
-      const total = await prisma.treatment.count({ where: whereClause });
+      console.log(`✅ Found ${treatments.length} treatments (${total} total)`);
 
       res.status(200).json({
         success: true,
@@ -79,20 +92,18 @@ class TreatmentController {
           treatments: treatments.map(treatment => ({
             id: treatment.id,
             name: treatment.name,
-            description: treatment.description,
+            description: treatment.description || treatment.shortDescription || '',
             price: treatment.price,
+            duration: treatment.durationMinutes,
             durationMinutes: treatment.durationMinutes,
             category: treatment.category,
             iconName: treatment.iconName,
-            emoji: treatment.emoji,
+            emoji: TreatmentController.getEmojiFromCategory(treatment.category),
             isVipExclusive: treatment.isVipExclusive,
-            benefits: treatment.benefits,
-            clinic: {
-              id: treatment.clinic.id,
-              name: treatment.clinic.name,
-              address: treatment.clinic.address,
-              phone: treatment.clinic.phone
-            }
+            isActive: treatment.isActive,
+            isFeatured: treatment.isFeatured,
+            vipPrice: treatment.vipPrice,
+            clinic: treatment.clinic?.name || 'Clínica Principal'
           })),
           pagination: {
             total,
@@ -112,49 +123,53 @@ class TreatmentController {
       });
 
     } catch (error) {
-      next(error);
+      console.error('❌ Error getting all treatments:', error);
+      res.status(500).json({
+        success: false,
+        error: { message: 'Error interno del servidor' }
+      });
     }
   }
 
-  // Obtener tratamientos destacados para dashboard
+  // ============================================================================
+  // OBTENER TRATAMIENTOS DESTACADOS
+  // ============================================================================
   static async getFeaturedTreatments(req, res, next) {
     try {
       const { clinicId, userId } = req.query;
       const limit = parseInt(req.query.limit) || 6;
 
-      // Si hay userId, personalizar recomendaciones
-      let userPreferences = null;
-      if (userId && userId !== 'demo-user-123') {
-        const user = await prisma.user.findUnique({
-          where: { id: userId },
-          select: {
-            vipStatus: true,
-            skinType: true,
-            // Obtener tratamientos previos para personalización
-            appointments: {
-              where: { status: 'COMPLETED' },
-              include: { treatment: true },
-              orderBy: { scheduledDate: 'desc' },
-              take: 5
-            }
-          }
-        });
-        userPreferences = user;
-      }
+      console.log('⭐ Getting featured treatments:', { clinicId, userId, limit });
 
       // Construir filtros base
-      const whereClause = {};
+      const whereClause = {
+        isActive: true,
+        isFeatured: true
+      };
       
       if (clinicId) {
         whereClause.clinicId = clinicId;
       }
 
+      // Si hay usuario, verificar VIP status
+      let userVipStatus = false;
+      if (userId && userId !== 'demo-user-123') {
+        try {
+          const user = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { vipStatus: true }
+          });
+          userVipStatus = user?.vipStatus || false;
+        } catch (userError) {
+          console.log('⚠️ Could not fetch user VIP status');
+        }
+      }
+
       // Si el usuario no es VIP, excluir tratamientos VIP
-      if (userPreferences && !userPreferences.vipStatus) {
+      if (!userVipStatus) {
         whereClause.isVipExclusive = false;
       }
 
-      // Obtener tratamientos destacados
       const featuredTreatments = await prisma.treatment.findMany({
         where: whereClause,
         include: {
@@ -162,141 +177,64 @@ class TreatmentController {
             select: {
               id: true,
               name: true,
-              address: true
+              address: true,
+              city: true
             }
           }
         },
         orderBy: [
-          // Priorizar tratamientos VIP si el usuario es VIP
-          ...(userPreferences?.vipStatus ? [{ isVipExclusive: 'desc' }] : []),
-          { price: 'asc' } // Más económicos primero
+          { isVipExclusive: userVipStatus ? 'desc' : 'asc' },
+          { price: 'asc' }
         ],
         take: limit
       });
 
-      // Si hay preferencias del usuario, reordenar por compatibilidad
-      let finalTreatments = featuredTreatments;
-      
-      if (userPreferences) {
-        // Obtener categorías de tratamientos previos
-        const previousCategories = userPreferences.appointments.map(
-          apt => apt.treatment.category
-        );
-        
-        // Ordenar por relevancia
-        finalTreatments = featuredTreatments.sort((a, b) => {
-          const aScore = previousCategories.includes(a.category) ? 2 : 0;
-          const bScore = previousCategories.includes(b.category) ? 2 : 0;
-          
-          const aVipScore = a.isVipExclusive && userPreferences.vipStatus ? 1 : 0;
-          const bVipScore = b.isVipExclusive && userPreferences.vipStatus ? 1 : 0;
-          
-          return (bScore + bVipScore) - (aScore + aVipScore);
-        });
-      }
+      console.log(`✅ Found ${featuredTreatments.length} featured treatments`);
 
       res.status(200).json({
         success: true,
         data: {
-          featuredTreatments: finalTreatments.map(treatment => ({
+          featuredTreatments: featuredTreatments.map(treatment => ({
             id: treatment.id,
             name: treatment.name,
-            description: treatment.description,
+            description: treatment.description || treatment.shortDescription || '',
             price: treatment.price,
-            durationMinutes: treatment.durationMinutes,
-            duration: treatment.durationMinutes, // Compatibilidad con frontend
-            category: treatment.category,
-            iconName: treatment.iconName,
-            emoji: treatment.emoji || TreatmentController.getEmojiFromCategory(treatment.category),
-            isVipExclusive: treatment.isVipExclusive,
-            benefits: treatment.benefits,
-            clinic: {
-              id: treatment.clinic.id,
-              name: treatment.clinic.name,
-              address: treatment.clinic.address
-            }
-          })),
-          personalized: !!userPreferences,
-          userTier: userPreferences?.vipStatus ? 'VIP' : 'Standard'
-        }
-      });
-
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  // Obtener tratamientos por clínica específica
-  static async getTreatmentsByClinic(req, res, next) {
-    try {
-      const { clinicId } = req.params;
-      const { category, isVipExclusive } = req.query;
-
-      // Verificar que la clínica existe
-      const clinic = await prisma.clinic.findUnique({
-        where: { id: clinicId }
-      });
-
-      if (!clinic) {
-        throw new AppError('Clínica no encontrada', 404);
-      }
-
-      // Construir filtros
-      const whereClause = { clinicId };
-      
-      if (category) {
-        whereClause.category = category;
-      }
-      
-      if (isVipExclusive !== undefined) {
-        whereClause.isVipExclusive = isVipExclusive === 'true';
-      }
-
-      const treatments = await prisma.treatment.findMany({
-        where: whereClause,
-        orderBy: [
-          { isVipExclusive: 'desc' },
-          { category: 'asc' },
-          { price: 'asc' }
-        ]
-      });
-
-      res.status(200).json({
-        success: true,
-        data: {
-          clinic: {
-            id: clinic.id,
-            name: clinic.name,
-            address: clinic.address,
-            phone: clinic.phone
-          },
-          treatments: treatments.map(treatment => ({
-            id: treatment.id,
-            name: treatment.name,
-            description: treatment.description,
-            price: treatment.price,
-            durationMinutes: treatment.durationMinutes,
             duration: treatment.durationMinutes,
+            durationMinutes: treatment.durationMinutes,
             category: treatment.category,
             iconName: treatment.iconName,
-            emoji: treatment.emoji || TreatmentController.getEmojiFromCategory(treatment.category),
+            emoji: TreatmentController.getEmojiFromCategory(treatment.category),
             isVipExclusive: treatment.isVipExclusive,
-            benefits: treatment.benefits
-          }))
+            vipPrice: treatment.vipPrice,
+            clinic: treatment.clinic?.name || 'Clínica Principal'
+          })),
+          personalized: !!userId,
+          userTier: userVipStatus ? 'VIP' : 'Standard'
         }
       });
 
     } catch (error) {
-      next(error);
+      console.error('❌ Error getting featured treatments:', error);
+      res.status(500).json({
+        success: false,
+        error: { message: 'Error interno del servidor' }
+      });
     }
   }
 
-  // Obtener categorías disponibles
+  // ============================================================================
+  // OBTENER CATEGORÍAS
+  // ============================================================================
   static async getCategories(req, res, next) {
     try {
       const { clinicId } = req.query;
 
-      const whereClause = {};
+      console.log('🏷️ Getting categories for clinic:', clinicId);
+
+      const whereClause = {
+        isActive: true
+      };
+      
       if (clinicId) {
         whereClause.clinicId = clinicId;
       }
@@ -324,6 +262,8 @@ class TreatmentController {
         })
       );
 
+      console.log(`✅ Found ${categoriesWithCount.length} categories`);
+
       res.status(200).json({
         success: true,
         data: {
@@ -332,14 +272,105 @@ class TreatmentController {
       });
 
     } catch (error) {
-      next(error);
+      console.error('❌ Error getting categories:', error);
+      res.status(500).json({
+        success: false,
+        error: { message: 'Error interno del servidor' }
+      });
     }
   }
 
-  // Obtener detalles de un tratamiento específico
+  // ============================================================================
+  // OBTENER TRATAMIENTOS POR CLÍNICA
+  // ============================================================================
+  static async getTreatmentsByClinic(req, res, next) {
+    try {
+      const { clinicId } = req.params;
+      const { category, isVipExclusive } = req.query;
+
+      console.log('🏥 Getting treatments for clinic:', clinicId);
+
+      // Verificar que la clínica existe
+      const clinic = await prisma.clinic.findUnique({
+        where: { id: clinicId }
+      });
+
+      if (!clinic) {
+        return res.status(404).json({
+          success: false,
+          error: { message: 'Clínica no encontrada' }
+        });
+      }
+
+      // Construir filtros
+      const whereClause = { 
+        clinicId,
+        isActive: true
+      };
+      
+      if (category) {
+        whereClause.category = category;
+      }
+      
+      if (isVipExclusive !== undefined) {
+        whereClause.isVipExclusive = isVipExclusive === 'true';
+      }
+
+      const treatments = await prisma.treatment.findMany({
+        where: whereClause,
+        orderBy: [
+          { isFeatured: 'desc' },
+          { isVipExclusive: 'desc' },
+          { category: 'asc' },
+          { price: 'asc' }
+        ]
+      });
+
+      console.log(`✅ Found ${treatments.length} treatments for clinic`);
+
+      res.status(200).json({
+        success: true,
+        data: {
+          clinic: {
+            id: clinic.id,
+            name: clinic.name,
+            address: clinic.address,
+            phone: clinic.phone,
+            city: clinic.city
+          },
+          treatments: treatments.map(treatment => ({
+            id: treatment.id,
+            name: treatment.name,
+            description: treatment.description || treatment.shortDescription || '',
+            price: treatment.price,
+            duration: treatment.durationMinutes,
+            durationMinutes: treatment.durationMinutes,
+            category: treatment.category,
+            iconName: treatment.iconName,
+            emoji: TreatmentController.getEmojiFromCategory(treatment.category),
+            isVipExclusive: treatment.isVipExclusive,
+            vipPrice: treatment.vipPrice
+          }))
+        }
+      });
+
+    } catch (error) {
+      console.error('❌ Error getting treatments by clinic:', error);
+      res.status(500).json({
+        success: false,
+        error: { message: 'Error interno del servidor' }
+      });
+    }
+  }
+
+  // ============================================================================
+  // OBTENER DETALLES DE TRATAMIENTO
+  // ============================================================================
   static async getTreatmentDetails(req, res, next) {
     try {
       const { id } = req.params;
+
+      console.log('🔍 Getting treatment details:', id);
 
       const treatment = await prisma.treatment.findUnique({
         where: { id },
@@ -350,32 +381,20 @@ class TreatmentController {
               name: true,
               address: true,
               phone: true,
-              website: true,
-              rating: true
-            }
-          },
-          // Incluir profesionales que pueden realizar este tratamiento
-          clinic: {
-            include: {
-              professionals: {
-                where: { isActive: true },
-                select: {
-                  id: true,
-                  firstName: true,
-                  lastName: true,
-                  specialties: true,
-                  rating: true,
-                  avatarUrl: true
-                }
-              }
+              city: true
             }
           }
         }
       });
 
       if (!treatment) {
-        throw new AppError('Tratamiento no encontrado', 404);
+        return res.status(404).json({
+          success: false,
+          error: { message: 'Tratamiento no encontrado' }
+        });
       }
+
+      console.log(`✅ Found treatment: ${treatment.name}`);
 
       res.status(200).json({
         success: true,
@@ -383,42 +402,39 @@ class TreatmentController {
           treatment: {
             id: treatment.id,
             name: treatment.name,
-            description: treatment.description,
+            description: treatment.description || treatment.shortDescription || '',
             price: treatment.price,
-            durationMinutes: treatment.durationMinutes,
             duration: treatment.durationMinutes,
+            durationMinutes: treatment.durationMinutes,
             category: treatment.category,
             iconName: treatment.iconName,
-            emoji: treatment.emoji || TreatmentController.getEmojiFromCategory(treatment.category),
+            emoji: TreatmentController.getEmojiFromCategory(treatment.category),
             isVipExclusive: treatment.isVipExclusive,
-            benefits: treatment.benefits,
-            preparationInstructions: treatment.preparationInstructions,
-            aftercareInstructions: treatment.aftercareInstructions,
+            vipPrice: treatment.vipPrice,
+            aftercareInfo: treatment.aftercareInfo,
             clinic: {
               id: treatment.clinic.id,
               name: treatment.clinic.name,
               address: treatment.clinic.address,
               phone: treatment.clinic.phone,
-              website: treatment.clinic.website,
-              rating: treatment.clinic.rating
-            },
-            availableProfessionals: treatment.clinic.professionals.map(prof => ({
-              id: prof.id,
-              name: `${prof.firstName} ${prof.lastName}`,
-              specialties: prof.specialties,
-              rating: prof.rating,
-              avatarUrl: prof.avatarUrl
-            }))
+              city: treatment.clinic.city
+            }
           }
         }
       });
 
     } catch (error) {
-      next(error);
+      console.error('❌ Error getting treatment details:', error);
+      res.status(500).json({
+        success: false,
+        error: { message: 'Error interno del servidor' }
+      });
     }
   }
 
-  // Buscar tratamientos
+  // ============================================================================
+  // BUSCAR TRATAMIENTOS
+  // ============================================================================
   static async searchTreatments(req, res, next) {
     try {
       const { q: query, clinicId, limit = 10 } = req.query;
@@ -430,10 +446,14 @@ class TreatmentController {
         });
       }
 
+      console.log('🔍 Searching treatments:', query);
+
       const whereClause = {
+        isActive: true,
         OR: [
           { name: { contains: query, mode: 'insensitive' } },
           { description: { contains: query, mode: 'insensitive' } },
+          { shortDescription: { contains: query, mode: 'insensitive' } },
           { category: { contains: query, mode: 'insensitive' } }
         ]
       };
@@ -449,7 +469,8 @@ class TreatmentController {
             select: {
               id: true,
               name: true,
-              address: true
+              address: true,
+              city: true
             }
           }
         },
@@ -459,6 +480,8 @@ class TreatmentController {
         take: parseInt(limit)
       });
 
+      console.log(`✅ Found ${treatments.length} treatments matching search`);
+
       res.status(200).json({
         success: true,
         data: {
@@ -466,41 +489,47 @@ class TreatmentController {
           treatments: treatments.map(treatment => ({
             id: treatment.id,
             name: treatment.name,
-            description: treatment.description,
+            description: treatment.description || treatment.shortDescription || '',
             price: treatment.price,
-            durationMinutes: treatment.durationMinutes,
             duration: treatment.durationMinutes,
+            durationMinutes: treatment.durationMinutes,
             category: treatment.category,
             iconName: treatment.iconName,
-            emoji: treatment.emoji || TreatmentController.getEmojiFromCategory(treatment.category),
+            emoji: TreatmentController.getEmojiFromCategory(treatment.category),
             isVipExclusive: treatment.isVipExclusive,
-            clinic: {
-              id: treatment.clinic.id,
-              name: treatment.clinic.name,
-              address: treatment.clinic.address
-            }
+            vipPrice: treatment.vipPrice,
+            clinic: treatment.clinic?.name || 'Clínica Principal'
           }))
         }
       });
 
     } catch (error) {
-      next(error);
+      console.error('❌ Error searching treatments:', error);
+      res.status(500).json({
+        success: false,
+        error: { message: 'Error interno del servidor' }
+      });
     }
   }
 
-  // Método helper para emojis por categoría
+  // ============================================================================
+  // HELPER: EMOJI POR CATEGORÍA
+  // ============================================================================
   static getEmojiFromCategory(category) {
     const emojiMap = {
-      'Facial': '💆‍♀️',
+      'Facial': '✨',
       'Corporal': '🌿',
-      'Masajes': '👐',
+      'Masajes': '💆‍♀️',
+      'Láser': '⚡',
+      'Estética': '💅',
+      'Relajación': '🧘‍♀️',
+      'Premium': '👑',
       'Depilación': '✨',
       'Uñas': '💅',
       'Cejas': '👁️',
       'Pestañas': '👁️‍🗨️',
       'Maquillaje': '💄',
       'Spa': '🧘‍♀️',
-      'Relajación': '🌸',
       'Tratamientos': '💎',
       'Belleza': '✨'
     };
