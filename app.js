@@ -10,85 +10,68 @@ const compression = require('compression');
 const morgan = require('morgan');
 
 // ============================================================================
-// CONFIGURACIÓN PARA RAILWAY ✅
+// CONFIGURACIÓN RAILWAY - SIMPLIFICADA ✅
 // ============================================================================
 const isProduction = process.env.NODE_ENV === 'production';
 const PORT = process.env.PORT || 3001;
 
-console.log('🚀 Starting Belleza Estética API...');
+console.log('🚀 Belleza Estética API v2.0');
 console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
 console.log(`🌐 Port: ${PORT}`);
-console.log(`🔗 Database URL: ${process.env.DATABASE_URL ? 'SET' : 'NOT SET'}`);
 
 // ============================================================================
-// IMPORTAR RUTAS CON MANEJO ROBUSTO ✅
+// IMPORTAR RUTAS DE FORMA SEGURA ✅
 // ============================================================================
-const importRoute = (path, name, required = false) => {
+const safeImport = (path, name) => {
   try {
     const route = require(path);
     console.log(`✅ ${name} routes loaded`);
     return route;
   } catch (error) {
-    console.log(`⚠️ ${name} routes not found: ${error.message}`);
-    if (required) {
-      console.error(`❌ CRITICAL: ${name} routes are required`);
-      process.exit(1);
-    }
+    console.log(`⚠️ ${name} routes not available`);
     return null;
   }
 };
 
-// Rutas críticas
-const authRoutes = importRoute('./src/routes/auth.routes', 'Auth', true);
-const treatmentRoutes = importRoute('./src/routes/treatment.routes', 'Treatment');
+// Rutas principales
+const authRoutes = safeImport('./src/routes/auth.routes', 'Auth');
+const treatmentRoutes = safeImport('./src/routes/treatment.routes', 'Treatment');
+const appointmentRoutes = safeImport('./src/routes/appointment.routes', 'Appointment');
+const profileRoutes = safeImport('./src/routes/profile.routes', 'Profile');
 
 // Rutas opcionales
-const appointmentRoutes = importRoute('./src/routes/appointment.routes', 'Appointment');
-const profileRoutes = importRoute('./src/routes/profile.routes', 'Profile');
-const dashboardRoutes = importRoute('./src/routes/dashboard.routes', 'Dashboard');
-const beautyPointsRoutes = importRoute('./src/routes/beautyPoints.routes', 'BeautyPoints');
-const vipRoutes = importRoute('./src/routes/vip.routes', 'VIP');
-const paymentRoutes = importRoute('./src/routes/payment.routes', 'Payment');
-const notificationsRoutes = importRoute('./src/routes/notifications.routes', 'Notifications');
-const offersRoutes = importRoute('./src/routes/offers.routes', 'Offers');
-const webhookRoutes = importRoute('./src/routes/webhook.routes', 'Webhook');
+const dashboardRoutes = safeImport('./src/routes/dashboard.routes', 'Dashboard');
+const beautyPointsRoutes = safeImport('./src/routes/beautyPoints.routes', 'BeautyPoints');
+const vipRoutes = safeImport('./src/routes/vip.routes', 'VIP');
+const paymentRoutes = safeImport('./src/routes/payment.routes', 'Payment');
+const notificationsRoutes = safeImport('./src/routes/notifications.routes', 'Notifications');
+const webhookRoutes = safeImport('./src/routes/webhook.routes', 'Webhook');
 
-// Error handler
-const errorHandler = importRoute('./src/middleware/error.middleware', 'Error')?.errorHandler || 
-  ((err, req, res, next) => {
-    console.error('❌ Error:', err);
-    res.status(500).json({
-      success: false,
-      error: { 
-        message: 'Internal server error',
-        ...(process.env.NODE_ENV === 'development' && { details: err.message })
+// ============================================================================
+// PRISMA - INICIALIZACIÓN SIMPLIFICADA ✅
+// ============================================================================
+let prisma = null;
+
+const initPrisma = () => {
+  try {
+    prisma = new PrismaClient({
+      log: isProduction ? ['error'] : ['error', 'warn'],
+      datasources: {
+        db: {
+          url: process.env.DATABASE_URL
+        }
       }
     });
-  });
-
-// ============================================================================
-// PRISMA SETUP PARA RAILWAY ✅
-// ============================================================================
-let prisma;
-try {
-  prisma = new PrismaClient({
-    log: isProduction ? ['error'] : ['query', 'info', 'warn', 'error'],
-    datasources: {
-      db: {
-        url: process.env.DATABASE_URL
-      }
-    }
-  });
-  console.log('✅ Prisma client initialized');
-} catch (error) {
-  console.error('❌ Prisma initialization failed:', error);
-  if (isProduction) {
-    process.exit(1);
+    console.log('✅ Prisma client created');
+    return true;
+  } catch (error) {
+    console.error('❌ Prisma init failed:', error.message);
+    return false;
   }
-}
+};
 
 // ============================================================================
-// EXPRESS APP SETUP ✅
+// EXPRESS APP ✅
 // ============================================================================
 const app = express();
 
@@ -96,186 +79,110 @@ const app = express();
 app.set('trust proxy', 1);
 
 // ============================================================================
-// MIDDLEWARES PARA RAILWAY ✅
+// MIDDLEWARES BÁSICOS ✅
 // ============================================================================
 
-// Health check temprano (antes de otros middlewares)
-app.get('/health', async (req, res) => {
-  const startTime = Date.now();
-  
-  try {
-    // Test básico del servidor
-    const serverStatus = {
-      status: 'OK',
-      timestamp: new Date().toISOString(),
-      uptime: process.uptime(),
-      memory: process.memoryUsage(),
-      environment: process.env.NODE_ENV || 'development',
-      version: '2.0.0'
-    };
+// Logging
+app.use(morgan(isProduction ? 'combined' : 'dev'));
 
-    // Test de base de datos
-    if (prisma) {
-      try {
-        await prisma.$queryRaw`SELECT 1 as test`;
-        serverStatus.database = 'connected';
-      } catch (dbError) {
-        console.error('❌ Database health check failed:', dbError);
-        serverStatus.database = 'error';
-        serverStatus.databaseError = dbError.message;
-      }
-    } else {
-      serverStatus.database = 'not_initialized';
-    }
-
-    serverStatus.responseTime = Date.now() - startTime;
-
-    // Retornar 200 si el servidor funciona, aunque la BD falle
-    res.status(200).json(serverStatus);
-    
-  } catch (error) {
-    console.error('❌ Health check error:', error);
-    res.status(503).json({
-      status: 'ERROR',
-      timestamp: new Date().toISOString(),
-      error: error.message,
-      responseTime: Date.now() - startTime
-    });
-  }
-});
-
-// Logging para Railway
-if (isProduction) {
-  app.use(morgan('combined'));
-} else {
-  app.use(morgan('dev'));
-}
-
-// Seguridad para Railway
+// Seguridad básica
 app.use(helmet({
   crossOriginEmbedderPolicy: false,
-  contentSecurityPolicy: isProduction ? {
-    directives: {
-      defaultSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      scriptSrc: ["'self'"],
-      imgSrc: ["'self'", "data:", "https:"],
-      connectSrc: ["'self'"],
-    }
-  } : false,
-  hsts: isProduction ? {
-    maxAge: 31536000,
-    includeSubDomains: true,
-    preload: true
-  } : false
+  contentSecurityPolicy: false
 }));
 
-// CORS configurado para Railway + apps móviles
+// CORS permisivo para apps móviles
 app.use(cors({
-  origin: function (origin, callback) {
-    // Permitir requests sin origin (apps móviles, Postman)
-    if (!origin) return callback(null, true);
-    
-    const allowedOrigins = isProduction 
-      ? [
-          // Agrega aquí tus dominios de producción
-          'https://tu-app.com',
-          'https://www.tu-app.com',
-          // Railway preview deployments
-          /^https:\/\/.*\.railway\.app$/,
-          // Apps móviles (Expo, React Native)
-          /^exp:\/\/.*$/,
-          /^exps:\/\/.*$/
-        ]
-      : [
-          'http://localhost:3000',
-          'http://localhost:19006',
-          /^http:\/\/192\.168\.\d+\.\d+:\d+$/,
-          /^http:\/\/10\.\d+\.\d+\.\d+:\d+$/,
-          /^http:\/\/172\.16\.\d+\.\d+:\d+$/,
-          /^exp:\/\/.*$/,
-          /^exps:\/\/.*$/
-        ];
-    
-    const isAllowed = allowedOrigins.some(allowed => {
-      if (typeof allowed === 'string') return allowed === origin;
-      if (allowed instanceof RegExp) return allowed.test(origin);
-      return false;
-    });
-    
-    if (isAllowed) {
-      callback(null, true);
-    } else {
-      console.log(`⚠️ CORS blocked origin: ${origin}`);
-      callback(null, true); // Permitir por ahora, loggear para debugging
-    }
-  },
+  origin: true, // Permitir todos los orígenes por ahora
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization', 'Cache-Control']
 }));
 
-// Rate limiting para Railway
+// Rate limiting básico
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutos
-  max: isProduction ? 1000 : 10000, // Más permisivo para desarrollo
-  message: { 
-    success: false, 
-    error: { 
-      message: 'Too many requests, please try again later.',
-      retryAfter: '15 minutes'
-    } 
-  },
+  windowMs: 15 * 60 * 1000,
+  max: 5000,
   standardHeaders: true,
   legacyHeaders: false,
-  skip: (req) => {
-    // Skip rate limiting para health checks
-    return req.path === '/health' || req.path === '/';
-  }
+  skip: (req) => req.path === '/health'
 });
-app.use('/api/', limiter);
+app.use(limiter);
 
 // Body parsing
-app.use('/api/webhooks/stripe', express.raw({ type: 'application/json' }));
-app.use(express.json({ limit: isProduction ? '1mb' : '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: isProduction ? '1mb' : '10mb' }));
-
-// Compresión
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 app.use(compression());
+
+// ============================================================================
+// HEALTH CHECK - PRIMERA PRIORIDAD ✅
+// ============================================================================
+app.get('/health', async (req, res) => {
+  const startTime = Date.now();
+  
+  const health = {
+    status: 'OK',
+    timestamp: new Date().toISOString(),
+    uptime: Math.floor(process.uptime()),
+    environment: process.env.NODE_ENV || 'development',
+    version: '2.0.0',
+    port: PORT
+  };
+
+  // Test de base de datos (no crítico para health)
+  if (prisma) {
+    try {
+      await Promise.race([
+        prisma.$queryRaw`SELECT 1 as test`,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('DB timeout')), 3000))
+      ]);
+      health.database = 'connected';
+    } catch (error) {
+      health.database = 'error';
+      health.databaseError = error.message;
+    }
+  } else {
+    health.database = 'not_initialized';
+  }
+
+  health.responseTime = Date.now() - startTime;
+  
+  // Siempre retornar 200 si el servidor funciona
+  res.status(200).json(health);
+});
 
 // ============================================================================
 // RUTAS PRINCIPALES ✅
 // ============================================================================
 
-// Ruta raíz
+// Root
 app.get('/', (req, res) => {
   res.json({
     message: '🏥 Belleza Estética API',
     version: '2.0.0',
     status: 'running',
     timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development',
-    ...(process.env.NODE_ENV === 'development' && {
-      endpoints: {
-        health: '/health',
-        auth: '/api/auth/*',
-        clinics: '/api/clinics',
-        treatments: '/api/treatments',
-        appointments: '/api/appointments',
-        profile: '/api/user/profile'
-      }
-    })
+    environment: process.env.NODE_ENV || 'development'
   });
 });
 
 // Auth routes (críticas)
-app.use('/api/auth', authRoutes);
+if (authRoutes) {
+  app.use('/api/auth', authRoutes);
+} else {
+  console.error('❌ CRITICAL: Auth routes required but not found');
+  app.use('/api/auth', (req, res) => {
+    res.status(503).json({
+      success: false,
+      error: { message: 'Auth service not available' }
+    });
+  });
+}
 
 // Treatment routes
 if (treatmentRoutes) {
   app.use('/api/treatments', treatmentRoutes);
 } else {
-  // Fallback mínimo para treatments
   app.get('/api/treatments', (req, res) => {
     res.json({
       success: true,
@@ -294,22 +201,12 @@ if (treatmentRoutes) {
           {
             id: 't2',
             name: 'Masaje Relajante',
-            description: 'Masaje corporal completo para relajación',
+            description: 'Masaje corporal completo',
             duration: 90,
             durationMinutes: 90,
             price: 7000,
             category: 'Corporal',
             emoji: '💆‍♀️'
-          },
-          {
-            id: 't3',
-            name: 'Tratamiento Antiedad',
-            description: 'Tratamiento facial antiedad con última tecnología',
-            duration: 75,
-            durationMinutes: 75,
-            price: 12000,
-            category: 'Premium',
-            emoji: '👑'
           }
         ]
       }
@@ -318,15 +215,20 @@ if (treatmentRoutes) {
 }
 
 // ============================================================================
-// RUTAS DE CLÍNICAS - PRODUCCIÓN ✅
+// CLÍNICAS - ENDPOINTS CRÍTICOS ✅
 // ============================================================================
 app.get('/api/clinics', async (req, res) => {
   try {
     let clinics = [];
     
+    // Solo intentar BD si prisma está disponible
     if (prisma) {
       try {
-        clinics = await prisma.clinic.findMany({
+        const dbTimeout = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Database timeout')), 5000)
+        );
+        
+        const clinicsQuery = prisma.clinic.findMany({
           where: { isActive: true },
           select: {
             id: true,
@@ -340,12 +242,15 @@ app.get('/api/clinics', async (req, res) => {
           },
           orderBy: { name: 'asc' }
         });
+
+        clinics = await Promise.race([clinicsQuery, dbTimeout]);
+        
       } catch (dbError) {
-        console.error('⚠️ Database error in clinics:', dbError.message);
+        console.warn('⚠️ Database query failed:', dbError.message);
       }
     }
     
-    // Fallback solo si no hay clínicas
+    // Fallback data
     if (clinics.length === 0) {
       clinics = [
         {
@@ -388,7 +293,7 @@ app.get('/api/clinics', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Error in clinics endpoint:', error);
+    console.error('❌ Clinics endpoint error:', error);
     res.status(500).json({
       success: false,
       error: { message: 'Internal server error' }
@@ -403,14 +308,21 @@ app.get('/api/clinics/:id', async (req, res) => {
     
     if (prisma) {
       try {
-        clinic = await prisma.clinic.findFirst({
+        const dbTimeout = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Database timeout')), 3000)
+        );
+        
+        const clinicQuery = prisma.clinic.findFirst({
           where: { 
             OR: [{ id }, { slug: id }],
             isActive: true 
           }
         });
+
+        clinic = await Promise.race([clinicQuery, dbTimeout]);
+        
       } catch (dbError) {
-        console.error('⚠️ Database error in clinic detail:', dbError.message);
+        console.warn('⚠️ Clinic query failed:', dbError.message);
       }
     }
     
@@ -427,16 +339,12 @@ app.get('/api/clinics/:id', async (req, res) => {
         'barcelona-eixample': { 
           id: 'barcelona-eixample', 
           name: 'Clínica Barcelona Eixample', 
-          city: 'Barcelona',
-          address: 'Passeig de Gràcia, 95, Barcelona',
-          phone: '+34 93 234 5678'
+          city: 'Barcelona'
         },
         'cmea67zey00040jpk5c8638ao': {
           id: 'cmea67zey00040jpk5c8638ao',
           name: 'Belleza Estética Premium',
-          city: 'Madrid',
-          address: 'Avenida Principal 123, Madrid',
-          phone: '+34 91 555 0123'
+          city: 'Madrid'
         }
       };
       clinic = demoClinics[id];
@@ -452,7 +360,7 @@ app.get('/api/clinics/:id', async (req, res) => {
     res.json({ success: true, data: clinic });
     
   } catch (error) {
-    console.error('❌ Error in clinic detail:', error);
+    console.error('❌ Clinic detail error:', error);
     res.status(500).json({
       success: false,
       error: { message: 'Internal server error' }
@@ -461,7 +369,7 @@ app.get('/api/clinics/:id', async (req, res) => {
 });
 
 // ============================================================================
-// RUTAS OPCIONALES CON FALLBACKS ✅
+// RUTAS OPCIONALES CON FALLBACKS MÍNIMOS ✅
 // ============================================================================
 
 // Appointments
@@ -471,38 +379,17 @@ if (appointmentRoutes) {
   const appointmentRouter = express.Router();
   
   appointmentRouter.get('/health', (req, res) => {
-    res.json({
-      success: true,
-      message: 'Appointment service fallback',
-      timestamp: new Date().toISOString()
-    });
+    res.json({ success: true, message: 'Appointment fallback active' });
   });
   
   appointmentRouter.get('/dashboard', (req, res) => {
     res.json({
       success: true,
       data: {
-        nextAppointment: {
-          id: 'apt-demo-123',
-          date: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-          treatment: {
-            name: 'Limpieza Facial Profunda',
-            duration: 60,
-            price: 7500
-          },
-          status: 'confirmed',
-          professional: { name: 'María González' },
-          location: {
-            name: 'Clínica Madrid Centro',
-            address: 'Calle Gran Vía, 28'
-          }
-        },
-        featuredTreatments: [
-          { id: 't1', name: 'Masaje Relajante', price: 5000, emoji: '💆‍♀️' },
-          { id: 't2', name: 'Tratamiento Antiedad', price: 8500, emoji: '✨' }
-        ],
-        todayAppointments: 1,
-        user: { beautyPoints: 1250, vipStatus: true }
+        nextAppointment: null,
+        featuredTreatments: [],
+        todayAppointments: 0,
+        user: { beautyPoints: 0, vipStatus: false }
       }
     });
   });
@@ -514,45 +401,14 @@ if (appointmentRoutes) {
     });
   });
   
-  // Availability endpoint crítico
   appointmentRouter.get('/availability/:clinicId/:date', (req, res) => {
-    const { clinicId, date } = req.params;
-    
     res.json({
       success: true,
       data: {
-        date,
-        clinicId,
-        clinic: {
-          id: clinicId,
-          name: clinicId === 'cmea67zey00040jpk5c8638ao' ? 'Belleza Estética Premium' : 'Clínica Demo',
-          address: 'Dirección demo'
-        },
-        availableSlots: [
-          {
-            time: '09:00',
-            available: true,
-            professionals: [{
-              id: 'prof-demo-1',
-              name: 'María González',
-              specialty: 'Facial',
-              rating: 4.8
-            }],
-            count: 1
-          },
-          {
-            time: '10:00',
-            available: true,
-            professionals: [{
-              id: 'prof-demo-2',
-              name: 'Ana Martínez',
-              specialty: 'Corporal',
-              rating: 4.9
-            }],
-            count: 1
-          }
-        ],
-        totalSlots: 2
+        date: req.params.date,
+        clinicId: req.params.clinicId,
+        availableSlots: [],
+        totalSlots: 0
       }
     });
   });
@@ -569,32 +425,26 @@ if (profileRoutes) {
       success: true,
       data: {
         id: 'demo-user-123',
-        firstName: 'Ana',
-        lastName: 'García',
-        email: 'ana.garcia@example.com',
-        beautyPoints: 1250,
-        vipStatus: true,
-        phone: '+34 123 456 789',
-        avatar: null,
-        registrationDate: new Date('2024-01-15').toISOString(),
-        totalAppointments: 12,
-        favoriteServices: ['Limpieza Facial', 'Masaje Relajante']
+        firstName: 'Demo',
+        lastName: 'User',
+        email: 'demo@example.com',
+        beautyPoints: 0,
+        vipStatus: false
       }
     });
   });
 }
 
-// Otras rutas
+// Otras rutas opcionales
 if (dashboardRoutes) app.use('/api/dashboard', dashboardRoutes);
 if (beautyPointsRoutes) app.use('/api/beauty-points', beautyPointsRoutes);
 if (vipRoutes) app.use('/api/vip', vipRoutes);
 if (paymentRoutes) app.use('/api/payments', paymentRoutes);
 if (notificationsRoutes) app.use('/api/notifications', notificationsRoutes);
-if (offersRoutes) app.use('/api/offers', offersRoutes);
 if (webhookRoutes) app.use('/api/webhooks', webhookRoutes);
 
 // ============================================================================
-// MANEJO DE ERRORES PARA RAILWAY ✅
+// ERROR HANDLING ✅
 // ============================================================================
 
 // 404 handler
@@ -603,62 +453,73 @@ app.use('*', (req, res) => {
     success: false,
     error: {
       message: 'Endpoint not found',
-      path: req.originalUrl,
-      method: req.method
+      path: req.originalUrl
     }
   });
 });
 
-// Error handler
-app.use(errorHandler);
+// Global error handler
+app.use((err, req, res, next) => {
+  console.error('❌ Global error:', err);
+  
+  if (res.headersSent) {
+    return next(err);
+  }
+  
+  res.status(500).json({
+    success: false,
+    error: {
+      message: 'Internal server error',
+      ...(process.env.NODE_ENV === 'development' && { details: err.message })
+    }
+  });
+});
 
 // ============================================================================
-// INICIALIZACIÓN PARA RAILWAY ✅
+// INICIALIZACIÓN Y STARTUP ✅
 // ============================================================================
-const initializeDatabase = async () => {
-  if (!prisma) return false;
-  
-  try {
-    console.log('🔄 Connecting to database...');
-    await prisma.$connect();
-    console.log('✅ Database connected');
-    return true;
-  } catch (error) {
-    console.error('❌ Database connection failed:', error.message);
-    if (isProduction) {
-      console.error('💥 Database required in production');
-      return false;
-    }
-    console.log('💡 Continuing with fallbacks');
-    return false;
-  }
-};
 
 const startServer = async () => {
   try {
-    // Conectar a la base de datos
-    const dbConnected = await initializeDatabase();
+    console.log('🔄 Initializing server...');
     
-    if (isProduction && !dbConnected) {
-      console.error('❌ Cannot start in production without database');
-      process.exit(1);
+    // Inicializar Prisma (no crítico)
+    const prismaOk = initPrisma();
+    
+    if (prismaOk && prisma) {
+      try {
+        console.log('🔄 Testing database connection...');
+        await Promise.race([
+          prisma.$connect(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('DB connection timeout')), 10000))
+        ]);
+        console.log('✅ Database connected');
+      } catch (dbError) {
+        console.warn('⚠️ Database connection failed:', dbError.message);
+        console.log('💡 Server will continue with fallback data');
+      }
     }
     
     // Iniciar servidor
     const server = app.listen(PORT, '0.0.0.0', () => {
-      console.log('🎯 SERVER RUNNING:');
+      console.log('🎯 SERVER READY:');
       console.log(`   🌐 Port: ${PORT}`);
-      console.log(`   📊 Database: ${dbConnected ? 'CONNECTED' : 'FALLBACK'}`);
+      console.log(`   📊 Database: ${prisma ? 'initialized' : 'fallback mode'}`);
       console.log(`   🔧 Environment: ${process.env.NODE_ENV || 'development'}`);
-      console.log('   ✅ Ready for connections');
+      console.log('   ✅ Accepting connections');
+      console.log('   🏥 Health check: /health');
     });
     
     // Graceful shutdown
     const shutdown = (signal) => {
-      console.log(`\n📡 Received ${signal}. Shutting down...`);
+      console.log(`\n📡 Received ${signal}. Shutting down gracefully...`);
       server.close(async () => {
         try {
-          if (prisma) await prisma.$disconnect();
+          if (prisma) {
+            await prisma.$disconnect();
+            console.log('✅ Database disconnected');
+          }
+          console.log('✅ Server stopped');
           process.exit(0);
         } catch (error) {
           console.error('❌ Shutdown error:', error);
@@ -670,24 +531,27 @@ const startServer = async () => {
     process.on('SIGTERM', () => shutdown('SIGTERM'));
     process.on('SIGINT', () => shutdown('SIGINT'));
     
+    return server;
+    
   } catch (error) {
-    console.error('❌ Server failed to start:', error);
+    console.error('❌ Failed to start server:', error);
     process.exit(1);
   }
 };
 
-// Error handlers
+// Error handling
 process.on('unhandledRejection', (reason, promise) => {
   console.error('❌ Unhandled Rejection:', reason);
-  if (isProduction) process.exit(1);
 });
 
 process.on('uncaughtException', (error) => {
   console.error('❌ Uncaught Exception:', error);
-  if (isProduction) process.exit(1);
+  process.exit(1);
 });
 
 // Start the server
-startServer();
+if (require.main === module) {
+  startServer();
+}
 
 module.exports = app;

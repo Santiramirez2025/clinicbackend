@@ -1,11 +1,11 @@
 {
   "name": "clinic-backend-saas",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Backend API para SaaS de Clínicas Estéticas",
-  "main": "server.js",
+  "main": "app.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js",
+    "start": "node app.js",
+    "dev": "nodemon app.js",
     "test": "jest",
     "test:watch": "jest --watch",
     "prisma:generate": "prisma generate",
@@ -34,7 +34,8 @@
   "author": "Santiago Ramirez",
   "license": "MIT",
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
   },
   "dependencies": {
     "@prisma/client": "^6.12.0",
