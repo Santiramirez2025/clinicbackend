@@ -1,5 +1,5 @@
 // ============================================================================
-// src/routes/treatment.routes.js - RUTAS DE TRATAMIENTOS
+// src/routes/treatment.routes.js - RUTAS DE TRATAMIENTOS CON COMPLIANCE LEGAL ✅
 // ============================================================================
 const express = require('express');
 const { body, query, param } = require('express-validator');
@@ -32,6 +32,8 @@ router.get('/',
   [
     query('clinicId').optional().isUUID().withMessage('clinicId debe ser un UUID válido'),
     query('category').optional().isString().trim(),
+    query('riskLevel').optional().isIn(['LOW', 'MEDIUM', 'HIGH']).withMessage('riskLevel debe ser LOW, MEDIUM o HIGH'),
+    query('requiresConsultation').optional().isBoolean().withMessage('requiresConsultation debe ser true o false'),
     query('isVipExclusive').optional().isBoolean(),
     query('minPrice').optional().isFloat({ min: 0 }).withMessage('minPrice debe ser un número positivo'),
     query('maxPrice').optional().isFloat({ min: 0 }).withMessage('maxPrice debe ser un número positivo'),
@@ -79,25 +81,155 @@ router.get('/clinic/:clinicId',
   [
     param('clinicId').isUUID().withMessage('clinicId debe ser un UUID válido'),
     query('category').optional().isString().trim(),
+    query('riskLevel').optional().isIn(['LOW', 'MEDIUM', 'HIGH']),
     query('isVipExclusive').optional().isBoolean()
   ],
   validateRequest,
   TreatmentController.getTreatmentsByClinic
 );
 
+// ============================================================================
+// ✅ NUEVAS RUTAS PARA COMPLIANCE LEGAL
+// ============================================================================
+
+// POST /api/treatments/validate-eligibility - Validar elegibilidad para tratamiento
+router.post('/validate-eligibility',
+  [
+    body('treatmentId').notEmpty().withMessage('treatmentId es requerido'),
+    body('userAge').optional().isInt({ min: 16, max: 100 }).withMessage('userAge debe estar entre 16 y 100'),
+    body('medicalConditions').optional().isArray().withMessage('medicalConditions debe ser un array'),
+    body('allergies').optional().isArray().withMessage('allergies debe ser un array'),
+    body('medications').optional().isArray().withMessage('medications debe ser un array')
+  ],
+  validateRequest,
+  TreatmentController.validateTreatmentEligibility
+);
+
+// GET /api/treatments/:id/legal-info - Obtener información legal específica
+router.get('/:id/legal-info',
+  [
+    param('id').notEmpty().withMessage('ID del tratamiento es requerido')
+  ],
+  validateRequest,
+  TreatmentController.getLegalInfo
+);
+
 // GET /api/treatments/:id - Obtener detalles de un tratamiento específico
 router.get('/:id',
   [
-    param('id').isUUID().withMessage('ID del tratamiento debe ser un UUID válido')
+    param('id').notEmpty().withMessage('ID del tratamiento debe ser válido')
   ],
   validateRequest,
   TreatmentController.getTreatmentDetails
 );
 
 // ============================================================================
-// RUTAS PROTEGIDAS (requieren autenticación)
+// RUTAS PROTEGIDAS (requieren autenticación) - FUTURAS
 // ============================================================================
-// NOTA: Las rutas protegidas se implementarán cuando se necesite autenticación.
-// Por ahora, todas las rutas de tratamientos son públicas para facilitar el desarrollo.
+// NOTA: Estas rutas se implementarán cuando se necesite gestión avanzada
+// de tratamientos por parte de profesionales o administradores
+
+/*
+// Middleware de autenticación (para implementar en el futuro)
+const authenticateToken = (req, res, next) => {
+  // TODO: Implementar validación de JWT
+  next();
+};
+
+// POST /api/treatments - Crear nuevo tratamiento (solo profesionales)
+router.post('/',
+  authenticateToken,
+  [
+    body('name').notEmpty().withMessage('Nombre es requerido'),
+    body('description').notEmpty().withMessage('Descripción es requerida'),
+    body('category').notEmpty().withMessage('Categoría es requerida'),
+    body('durationMinutes').isInt({ min: 15 }).withMessage('Duración debe ser al menos 15 minutos'),
+    body('price').isFloat({ min: 0 }).withMessage('Precio debe ser positivo'),
+    body('riskLevel').isIn(['LOW', 'MEDIUM', 'HIGH']).withMessage('Nivel de riesgo inválido')
+  ],
+  validateRequest,
+  TreatmentController.createTreatment
+);
+
+// PUT /api/treatments/:id - Actualizar tratamiento
+router.put('/:id',
+  authenticateToken,
+  [
+    param('id').isUUID().withMessage('ID debe ser un UUID válido'),
+    body('name').optional().notEmpty().withMessage('Nombre no puede estar vacío'),
+    body('price').optional().isFloat({ min: 0 }).withMessage('Precio debe ser positivo')
+  ],
+  validateRequest,
+  TreatmentController.updateTreatment
+);
+
+// DELETE /api/treatments/:id - Eliminar tratamiento (soft delete)
+router.delete('/:id',
+  authenticateToken,
+  [
+    param('id').isUUID().withMessage('ID debe ser un UUID válido')
+  ],
+  validateRequest,
+  TreatmentController.deleteTreatment
+);
+*/
+
+// ============================================================================
+// MIDDLEWARE DE MANEJO DE ERRORES
+// ============================================================================
+
+router.use((error, req, res, next) => {
+  console.error('❌ Treatment route error:', error);
+  
+  // Errores específicos de tratamientos
+  if (error.message.includes('Tratamiento no encontrado')) {
+    return res.status(404).json({
+      success: false,
+      error: { 
+        message: 'El tratamiento solicitado no existe o no está disponible',
+        code: 'TREATMENT_NOT_FOUND'
+      }
+    });
+  }
+  
+  if (error.message.includes('Contraindicación')) {
+    return res.status(400).json({
+      success: false,
+      error: { 
+        message: 'Existen contraindicaciones médicas para este tratamiento',
+        code: 'MEDICAL_CONTRAINDICATION'
+      }
+    });
+  }
+  
+  if (error.message.includes('Edad mínima')) {
+    return res.status(400).json({
+      success: false,
+      error: { 
+        message: 'No cumples con la edad mínima requerida para este tratamiento',
+        code: 'AGE_RESTRICTION'
+      }
+    });
+  }
+  
+  if (error.message.includes('Consulta médica requerida')) {
+    return res.status(400).json({
+      success: false,
+      error: { 
+        message: 'Este tratamiento requiere consulta médica previa obligatoria',
+        code: 'MEDICAL_CONSULTATION_REQUIRED'
+      }
+    });
+  }
+  
+  // Error genérico
+  res.status(500).json({
+    success: false,
+    error: { 
+      message: 'Error interno en el sistema de tratamientos',
+      code: 'TREATMENT_SYSTEM_ERROR'
+    }
+  });
+});
 
 module.exports = router;

@@ -8,7 +8,29 @@ datasource db {
 }
 
 // ============================================================================
-// 🏥 MODELO CLÍNICA - BASE DEL SISTEMA
+// ✅ ENUMS PARA CLASIFICACIÓN LEGAL
+// ============================================================================
+enum TreatmentRiskLevel {
+  LOW       // Grupo A - Sin consulta previa obligatoria
+  MEDIUM    // Grupo B - Consulta recomendada
+  HIGH      // Grupo B - Consulta obligatoria
+}
+
+enum ConsentType {
+  SIMPLE    // Consentimiento básico
+  INFORMED  // Consentimiento informado
+  MEDICAL   // Consentimiento médico detallado
+}
+
+enum AppointmentType {
+  DIRECT                // Reserva directa
+  CONSULTATION_ONLY     // Solo consulta
+  CONSULTATION_TREATMENT // Consulta + Tratamiento el mismo día
+  CONSULTATION_SEPARATE  // Consulta previa obligatoria en cita separada
+}
+
+// ============================================================================
+// 🏥 MODELO CLÍNICA - ACTUALIZADO CON COMPLIANCE LEGAL
 // ============================================================================
 model Clinic {
   id           String  @id @default(cuid())
@@ -24,6 +46,20 @@ model Clinic {
   logoUrl      String? @map("logo_url")
   websiteUrl   String? @map("website_url")
   brandColors  String? @map("brand_colors") // JSON
+
+  // ✅ NUEVA CONFIGURACIÓN LEGAL
+  medicalLicense       String?  @map("medical_license")
+  healthRegistration   String?  @map("health_registration") // Registro sanitario
+  autonomousCommunity  String?  @map("autonomous_community") // CCAA
+  legalCompliance      String?  @map("legal_compliance") // JSON con configuraciones
+  
+  // ✅ CONFIGURACIÓN DE CONSENTIMIENTOS
+  defaultConsentPolicy String?  @map("default_consent_policy") // JSON
+  requiresDigitalSignature Boolean @default(false) @map("requires_digital_signature")
+  
+  // ✅ CONFIGURACIÓN DE TRATAMIENTOS
+  allowsDirectBookingHighRisk Boolean @default(false) @map("allows_direct_booking_high_risk")
+  consultationMinimumTime     Int?    @map("consultation_minimum_time") // minutos
 
   // Configuración de negocio
   businessHours         String    @map("business_hours") // JSON
@@ -49,12 +85,13 @@ model Clinic {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relaciones
-  professionals   Professional[]
-  users           User[]
-  treatments      Treatment[]
-  appointments    Appointment[]
-  rewardTemplates RewardTemplate[]
-  offers          Offer[]
+  professionals       Professional[]
+  users               User[]
+  treatments          Treatment[]
+  appointments        Appointment[]
+  rewardTemplates     RewardTemplate[]
+  offers              Offer[]
+  consentFormTemplates ConsentFormTemplate[] // ✅ NUEVO
 
   @@index([slug], map: "idx_clinic_slug")
   @@index([city, isActive], map: "idx_clinic_location")
@@ -63,7 +100,7 @@ model Clinic {
 }
 
 // ============================================================================
-// 👥 MODELO USER - PACIENTES CON MULTI-CLÍNICA
+// 👥 MODELO USER - ACTUALIZADO CON INFORMACIÓN MÉDICA
 // ============================================================================
 model User {
   id           String    @id @default(cuid())
@@ -79,10 +116,23 @@ model User {
   // Clínica principal (donde se registró)
   primaryClinicId String @map("primary_clinic_id")
 
-  // Datos médicos/estéticos
+  // ✅ NUEVA INFORMACIÓN MÉDICA PARA COMPLIANCE
+  hasAllergies         Boolean? @map("has_allergies")
+  allergyDetails       String?  @map("allergy_details") // JSON
+  hasMedicalConditions Boolean? @map("has_medical_conditions")
+  medicalDetails       String?  @map("medical_details") // JSON
+  takingMedications    Boolean? @map("taking_medications")
+  medicationDetails    String?  @map("medication_details") // JSON
+  
+  // ✅ CONSENTIMIENTOS
+  generalConsentDate   DateTime? @map("general_consent_date")
+  marketingConsentDate DateTime? @map("marketing_consent_date")
+  dataProcessingConsent Boolean  @default(false) @map("data_processing_consent")
+
+  // Datos médicos/estéticos (existente)
   skinType             String? @map("skin_type")
-  allergies            String? // JSON array
-  medicalConditions    String? @map("medical_conditions") // JSON
+  allergies            String? // JSON array - DEPRECATED, usar allergyDetails
+  medicalConditions    String? @map("medical_conditions") // JSON - DEPRECATED
   treatmentPreferences String? @map("treatment_preferences") // JSON
 
   // Gamificación
@@ -131,7 +181,8 @@ model User {
   payments            Payment[]
   notificationLogs    NotificationLog[]
   offerRedemptions    OfferRedemption[]
-  userSessions        UserSession[] // ✅ AGREGADO
+  userSessions        UserSession[]
+  patientConsents     PatientConsent[] // ✅ NUEVO
 
   @@index([primaryClinicId, isActive], map: "idx_user_clinic")
   @@index([email], map: "idx_user_email")
@@ -199,7 +250,7 @@ model Professional {
   clinic              Clinic                      @relation(fields: [clinicId], references: [id], onDelete: Cascade)
   appointments        Appointment[]
   passwordResetTokens ProfessionalPasswordReset[]
-  userSessions        UserSession[] // ✅ AGREGADO
+  userSessions        UserSession[]
 
   @@index([clinicId, isActive], map: "idx_professional_clinic")
   @@index([email], map: "idx_professional_email")
@@ -208,39 +259,96 @@ model Professional {
 }
 
 // ============================================================================
-// 🔐 TOKENS DE RESET PARA PROFESIONALES
+// ✅ MODELO CONSENT FORM TEMPLATE
 // ============================================================================
-model ProfessionalPasswordReset {
-  id             String   @id @default(cuid())
-  professionalId String   @map("professional_id")
-  token          String   @unique
-  expiresAt      DateTime @map("expires_at")
-  used           Boolean  @default(false)
-  createdAt      DateTime @default(now()) @map("created_at")
+model ConsentFormTemplate {
+  id       String @id @default(cuid())
+  clinicId String @map("clinic_id")
 
-  professional Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  // Información básica
+  name        String
+  description String?
+  version     String @default("1.0")
+  language    String @default("es")
 
-  @@map("professional_password_resets")
-}
+  // Contenido del formulario
+  title       String
+  content     String  // HTML del formulario
+  fields      String  // JSON con campos requeridos
+  
+  // Configuración legal
+  isActive    Boolean @default(true) @map("is_active")
+  isMandatory Boolean @default(false) @map("is_mandatory")
+  
+  // Tipo de consentimiento
+  consentType ConsentType @map("consent_type")
+  
+  // Validez
+  validFrom   DateTime @map("valid_from")
+  validUntil  DateTime? @map("valid_until")
 
-// ============================================================================
-// 🔐 TOKENS DE RESET PARA USUARIOS
-// ============================================================================
-model PasswordResetToken {
-  id        String   @id @default(cuid())
-  userId    String   @map("user_id")
-  token     String   @unique
-  expiresAt DateTime @map("expires_at")
-  used      Boolean  @default(false)
   createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Relaciones
+  clinic      Clinic          @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  treatments  Treatment[]
+  consents    PatientConsent[]
 
-  @@map("password_reset_tokens")
+  @@index([clinicId, isActive], map: "idx_consent_template_clinic")
+  @@index([consentType], map: "idx_consent_template_type")
+  @@map("consent_form_templates")
 }
 
 // ============================================================================
-// 💉 MODELO TREATMENT - MEJORADO
+// ✅ MODELO PATIENT CONSENT
+// ============================================================================
+model PatientConsent {
+  id          String @id @default(cuid())
+  userId      String @map("user_id")
+  treatmentId String @map("treatment_id")
+  templateId  String @map("template_id")
+  
+  // Información de consentimiento
+  isConsented      Boolean   @default(false) @map("is_consented")
+  consentedAt      DateTime? @map("consented_at")
+  digitalSignature String?   @map("digital_signature") // Base64 de la firma
+  
+  // Datos del formulario
+  formData         String?   // JSON con respuestas del paciente
+  
+  // Información médica relevante
+  allergies        String?   // JSON array
+  medications      String?   // JSON array
+  medicalHistory   String?   @map("medical_history")
+  
+  // Validación médica (si aplica)
+  reviewedBy       String?   @map("reviewed_by") // Professional ID
+  reviewedAt       DateTime? @map("reviewed_at")
+  medicalApproval  Boolean?  @map("medical_approval")
+  approvalNotes    String?   @map("approval_notes")
+  
+  // Estados
+  status           String    @default("PENDING") // PENDING, APPROVED, REJECTED, EXPIRED
+  
+  // Validez
+  expiresAt        DateTime? @map("expires_at")
+  
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relaciones
+  user      User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  treatment Treatment            @relation(fields: [treatmentId], references: [id])
+  template  ConsentFormTemplate @relation(fields: [templateId], references: [id])
+
+  @@index([userId, treatmentId], map: "idx_patient_consent_user_treatment")
+  @@index([status, expiresAt], map: "idx_patient_consent_validity")
+  @@map("patient_consents")
+}
+
+// ============================================================================
+// 💉 MODELO TREATMENT - ACTUALIZADO CON COMPLIANCE LEGAL
 // ============================================================================
 model Treatment {
   id       String @id @default(cuid())
@@ -253,27 +361,51 @@ model Treatment {
   category         String // facial, corporal, depilacion, etc.
   subcategory      String? // limpieza, hidratacion, etc.
 
+  // ✅ NUEVA CLASIFICACIÓN LEGAL
+  riskLevel                TreatmentRiskLevel @default(LOW) @map("risk_level")
+  requiresConsultation     Boolean            @default(false) @map("requires_consultation")
+  requiresMedicalStaff     Boolean            @default(false) @map("requires_medical_staff")
+  consentType              ConsentType        @default(SIMPLE) @map("consent_type")
+  regulatoryCategory       String?            @map("regulatory_category") // SANITARIO, ESTETICO, BIENESTAR
+  
+  // ✅ CONFIGURACIÓN POR COMUNIDAD AUTÓNOMA
+  regionalRequirements     String?            @map("regional_requirements") // JSON con requisitos por CCAA
+  
+  // ✅ INFORMACIÓN LEGAL DETALLADA
+  minimumAge               Int?               @map("minimum_age")
+  contraindications        String?            // JSON array de contraindicaciones
+  sideEffects             String?            @map("side_effects") // JSON array
+  recoveryTime            String?            @map("recovery_time") // "0-24h", "1-3 días"
+  followUpRequired        Boolean            @default(false) @map("follow_up_required")
+  
+  // ✅ CONSENTIMIENTO INFORMADO
+  consentFormRequired     Boolean            @default(false) @map("consent_form_required")
+  consentFormTemplateId   String?            @map("consent_form_template_id")
+  digitalSignatureRequired Boolean           @default(false) @map("digital_signature_required")
+  
+  // ✅ CONFIGURACIÓN DE RESERVA
+  appointmentType         AppointmentType    @default(DIRECT) @map("appointment_type")
+  consultationDuration    Int?               @map("consultation_duration") // minutos
+  allowSameDayConsultation Boolean           @default(true) @map("allow_same_day_consultation")
+  
+  // ✅ PROFESIONALES AUTORIZADOS
+  authorizedProfessionalTypes String?        @map("authorized_professional_types") // JSON array
+  requiresSpecialization  Boolean            @default(false) @map("requires_specialization")
+
   // Duración y precios
   durationMinutes Int    @map("duration_minutes")
   price           Float
-  vipPrice        Float? @map("vip_price") // Precio especial VIP
-  preparationTime Int    @default(0) @map("preparation_time") // Tiempo prep en minutos
+  vipPrice        Float? @map("vip_price")
+  preparationTime Int    @default(0) @map("preparation_time")
 
   // Configuración visual
   iconName String  @map("icon_name")
-  color    String? // Color hex para la categoría
+  color    String?
   imageUrl String? @map("image_url")
   gallery  String? // JSON array de URLs de imágenes
 
-  // Requisitos y restricciones
-  ageRestriction    String? @map("age_restriction") // "18+", "16+", etc.
-  contraindications String? // JSON array de contraindicaciones
-  requirements      String? // JSON array de requisitos previos
-  aftercareInfo     String? @map("aftercare_info") // Cuidados post-tratamiento
-
   // Configuración de negocio
   isVipExclusive       Boolean @default(false) @map("is_vip_exclusive")
-  requiresConsultation Boolean @default(false) @map("requires_consultation")
   maxSessionsPerMonth  Int?    @map("max_sessions_per_month")
   beautyPointsEarned   Int     @default(10) @map("beauty_points_earned")
 
@@ -293,17 +425,20 @@ model Treatment {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relaciones
-  clinic       Clinic        @relation(fields: [clinicId], references: [id], onDelete: Cascade)
-  appointments Appointment[]
+  clinic               Clinic               @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  appointments         Appointment[]
+  consentFormTemplate  ConsentFormTemplate? @relation(fields: [consentFormTemplateId], references: [id])
+  patientConsents      PatientConsent[]
 
   @@index([clinicId, isActive], map: "idx_treatment_clinic")
   @@index([category, isActive], map: "idx_treatment_category")
+  @@index([riskLevel, requiresConsultation], map: "idx_treatment_legal")
   @@index([isVipExclusive, isFeatured], map: "idx_treatment_special")
   @@map("treatments")
 }
 
 // ============================================================================
-// 📅 MODELO APPOINTMENT - OPTIMIZADO
+// 📅 MODELO APPOINTMENT - ACTUALIZADO PARA LEGAL COMPLIANCE
 // ============================================================================
 model Appointment {
   id String @id @default(cuid())
@@ -313,6 +448,19 @@ model Appointment {
   clinicId       String @map("clinic_id")
   professionalId String @map("professional_id")
   treatmentId    String @map("treatment_id")
+
+  // ✅ NUEVA INFORMACIÓN LEGAL
+  appointmentType      AppointmentType @default(DIRECT) @map("appointment_type")
+  isConsultationOnly   Boolean         @default(false) @map("is_consultation_only")
+  consultationRequired Boolean         @default(false) @map("consultation_required")
+  consentStatus        String?         @map("consent_status") // PENDING, COMPLETED, NOT_REQUIRED
+  consentFormId        String?         @map("consent_form_id")
+  
+  // ✅ VALIDACIÓN MÉDICA
+  medicalClearance     Boolean?        @map("medical_clearance")
+  clearanceProvidedBy  String?         @map("clearance_provided_by") // Professional ID
+  clearanceNotes       String?         @map("clearance_notes")
+  clearanceDate        DateTime?       @map("clearance_date")
 
   // Programación
   scheduledDate DateTime @map("scheduled_date")
@@ -326,8 +474,8 @@ model Appointment {
   priority        String @default("NORMAL") // LOW, NORMAL, HIGH, URGENT
 
   // Información adicional
-  notes             String? // Notas del paciente
-  professionalNotes String? @map("professional_notes") // Notas del profesional
+  notes             String?
+  professionalNotes String? @map("professional_notes")
   cancelReason      String? @map("cancel_reason")
   rescheduleReason  String? @map("reschedule_reason")
 
@@ -367,16 +515,47 @@ model Appointment {
   @@index([clinicId, scheduledDate], map: "idx_appointment_clinic_date")
   @@index([professionalId, scheduledDate], map: "idx_appointment_professional")
   @@index([status, scheduledDate], map: "idx_appointment_status")
+  @@index([appointmentType, consultationRequired], map: "idx_appointment_legal")
   @@map("appointments")
 }
 
 // ============================================================================
-// ✨ VIP SUBSCRIPTION - MEJORADO PARA STRIPE
+// RESTO DE MODELOS EXISTENTES (sin cambios)
 // ============================================================================
+
+// 🔐 TOKENS DE RESET PARA PROFESIONALES
+model ProfessionalPasswordReset {
+  id             String   @id @default(cuid())
+  professionalId String   @map("professional_id")
+  token          String   @unique
+  expiresAt      DateTime @map("expires_at")
+  used           Boolean  @default(false)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  professional Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+
+  @@map("professional_password_resets")
+}
+
+// 🔐 TOKENS DE RESET PARA USUARIOS
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  token     String   @unique
+  expiresAt DateTime @map("expires_at")
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("password_reset_tokens")
+}
+
+// ✨ VIP SUBSCRIPTION
 model VipSubscription {
   id       String @id @default(cuid())
   userId   String @map("user_id")
-  clinicId String @map("clinic_id") // ✅ NUEVO: VIP por clínica
+  clinicId String @map("clinic_id")
 
   // Stripe integration
   stripeSubscriptionId String @unique @map("stripe_subscription_id")
@@ -423,9 +602,7 @@ model VipSubscription {
   @@map("vip_subscriptions")
 }
 
-// ============================================================================
-// 🎁 MODELO OFFERS - MEJORADO
-// ============================================================================
+// 🎁 MODELO OFFERS
 model Offer {
   id       String @id @default(cuid())
   clinicId String @map("clinic_id")
@@ -497,9 +674,7 @@ model Offer {
   @@map("offers")
 }
 
-// ============================================================================
 // 🎁 REDEMPTION DE OFERTAS
-// ============================================================================
 model OfferRedemption {
   id            String  @id @default(cuid())
   offerId       String  @map("offer_id")
@@ -536,13 +711,11 @@ model OfferRedemption {
   @@map("offer_redemptions")
 }
 
-// ============================================================================
-// 🔔 NOTIFICATIONLOG - MEJORADO
-// ============================================================================
+// 🔔 NOTIFICATIONLOG
 model NotificationLog {
   id       String  @id @default(cuid())
   userId   String  @map("user_id")
-  clinicId String? @map("clinic_id") // ✅ NUEVO: tracking por clínica
+  clinicId String? @map("clinic_id")
 
   // Tipo y contenido
   type     String // appointment, wellness, promotion, general, offer, reminder
@@ -582,13 +755,11 @@ model NotificationLog {
   @@map("notification_logs")
 }
 
-// ============================================================================
 // 🎯 SISTEMA DE INVITACIONES
-// ============================================================================
 model Invitation {
   id           String  @id @default(cuid())
   inviterId    String  @map("inviter_id")
-  clinicId     String  @map("clinic_id") // ✅ NUEVO: invitaciones por clínica
+  clinicId     String  @map("clinic_id")
   inviteeEmail String  @map("invitee_email")
   inviteeName  String? @map("invitee_name")
 
@@ -617,12 +788,10 @@ model Invitation {
   @@map("invitations")
 }
 
-// ============================================================================
 // 💡 WELLNESS TIPS
-// ============================================================================
 model WellnessTip {
   id       String  @id @default(cuid())
-  clinicId String? @map("clinic_id") // ✅ NUEVO: tips por clínica (null = global)
+  clinicId String? @map("clinic_id")
 
   title    String
   content  String
@@ -663,9 +832,7 @@ model WellnessTip {
   @@map("wellness_tips")
 }
 
-// ============================================================================
 // 💰 STRIPE INTEGRATION - CUSTOMER MANAGEMENT
-// ============================================================================
 model StripeCustomer {
   id               String  @id @default(cuid())
   userId           String  @unique @map("user_id")
@@ -693,9 +860,7 @@ model StripeCustomer {
   @@map("stripe_customers")
 }
 
-// ============================================================================
-// 💳 PAYMENT METHODS - GESTIÓN DE TARJETAS
-// ============================================================================
+// 💳 PAYMENT METHODS
 model PaymentMethod {
   id             String @id @default(cuid())
   userId         String @map("user_id")
@@ -734,13 +899,11 @@ model PaymentMethod {
   @@map("payment_methods")
 }
 
-// ============================================================================
-// 💰 PAYMENTS - HISTORIAL DE PAGOS
-// ============================================================================
+// 💰 PAYMENTS
 model Payment {
   id       String  @id @default(cuid())
   userId   String  @map("user_id")
-  clinicId String? @map("clinic_id") // Para pagos de tratamientos
+  clinicId String? @map("clinic_id")
 
   // IDs de Stripe
   stripeInvoiceId       String? @map("stripe_invoice_id")
@@ -791,9 +954,7 @@ model Payment {
   @@map("payments")
 }
 
-// ============================================================================
-// 🔗 WEBHOOK EVENTS - GESTIÓN DE EVENTOS STRIPE
-// ============================================================================
+// 🔗 WEBHOOK EVENTS
 model WebhookEvent {
   id            String @id @default(cuid())
   stripeEventId String @unique @map("stripe_event_id")
@@ -820,9 +981,7 @@ model WebhookEvent {
   @@map("webhook_events")
 }
 
-// ============================================================================
-// 🏆 REWARD SYSTEM - PLANTILLAS DE RECOMPENSAS
-// ============================================================================
+// 🏆 REWARD SYSTEM
 model RewardTemplate {
   id       String @id @default(cuid())
   clinicId String @map("clinic_id")
@@ -885,9 +1044,7 @@ model RewardTemplate {
   @@map("reward_templates")
 }
 
-// ============================================================================
-// 🎁 REWARD REDEMPTIONS - CANJE DE RECOMPENSAS
-// ============================================================================
+// 🎁 REWARD REDEMPTIONS
 model RewardRedemption {
   id            String  @id @default(cuid())
   userId        String  @map("user_id")
@@ -928,9 +1085,7 @@ model RewardRedemption {
   @@map("reward_redemptions")
 }
 
-// ============================================================================
-// 📊 REWARD ANALYTICS - ANÁLISIS DEL SISTEMA DE RECOMPENSAS
-// ============================================================================
+// 📊 REWARD ANALYTICS
 model RewardAnalytics {
   id         String @id @default(cuid())
   templateId String @map("template_id")
@@ -965,9 +1120,7 @@ model RewardAnalytics {
   @@map("reward_analytics")
 }
 
-// ============================================================================
 // 📱 SISTEMA DE SESIONES Y SEGURIDAD
-// ============================================================================
 model UserSession {
   id             String  @id @default(cuid())
   userId         String? @map("user_id")
@@ -1014,9 +1167,7 @@ model UserSession {
   @@map("user_sessions")
 }
 
-// ============================================================================
-// 🛡️ AUDIT LOG - REGISTRO DE ACTIVIDADES
-// ============================================================================
+// 🛡️ AUDIT LOG
 model AuditLog {
   id String @id @default(cuid())
 
