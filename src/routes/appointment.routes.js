@@ -1,5 +1,5 @@
 // ============================================================================
-// src/routes/appointment.routes.js - VERSIÓN COMPLETA Y CORREGIDA ✅
+// src/routes/appointment.routes.js - VERSIÓN COMPLETA 
 // ============================================================================
 const express = require('express');
 const { PrismaClient } = require('@prisma/client');
