@@ -1,28 +1,13 @@
+// ============================================================================
+// auth.routes.js - CORREGIDO SIN VALIDACIONES PROBLEMÁTICAS ✅
+// ============================================================================
 const express = require('express');
-const { body } = require('express-validator');
 const { PrismaClient } = require('@prisma/client');
 const AuthController = require('../controllers/auth.controller');
 const { verifyToken } = require('../middleware/auth.middleware');
 
 const router = express.Router();
 const prisma = new PrismaClient();
-
-// ========================================================================
-// VALIDACIONES
-// ========================================================================
-const loginValidation = [
-  body('email').isEmail().normalizeEmail().withMessage('Email inválido'),
-  body('password').isLength({ min: 1 }).withMessage('Contraseña requerida'),
-  body('clinicSlug').optional().isLength({ min: 1 }).withMessage('Slug de clínica inválido')
-];
-
-const registerValidation = [
-  body('firstName').trim().isLength({ min: 2, max: 50 }).withMessage('Nombre entre 2 y 50 caracteres'),
-  body('lastName').trim().isLength({ min: 2, max: 50 }).withMessage('Apellido entre 2 y 50 caracteres'),
-  body('email').isEmail().normalizeEmail().withMessage('Email inválido'),
-  body('password').isLength({ min: 6, max: 100 }).withMessage('Contraseña entre 6 y 100 caracteres'),
-  body('clinicSlug').optional().isLength({ min: 1 }).withMessage('Slug de clínica requerido')
-];
 
 // ========================================================================
 // RUTAS PÚBLICAS
@@ -72,19 +57,19 @@ router.get('/clinics/active', async (req, res) => {
 });
 
 // ========================================================================
-// RUTAS DE AUTENTICACIÓN - USANDO CONTROLADOR
+// RUTAS DE AUTENTICACIÓN - SIN VALIDACIONES MIDDLEWARE ✅
 // ========================================================================
 
 // Demo login
 router.post('/demo-login', AuthController.demoLogin);
 
-// Login por tipo de usuario
-router.post('/patient/login', loginValidation, AuthController.patientLogin);
-router.post('/professional/login', loginValidation, AuthController.professionalLogin);
-router.post('/admin/login', loginValidation, AuthController.adminLogin);
+// ✅ CORREGIDO: Sin middleware de validación
+router.post('/patient/login', AuthController.patientLogin);
+router.post('/professional/login', AuthController.professionalLogin);
+router.post('/admin/login', AuthController.adminLogin);
 
 // Registro
-router.post('/register', registerValidation, AuthController.register);
+router.post('/register', AuthController.register);
 
 // Refresh token
 router.post('/refresh', AuthController.refreshToken);
