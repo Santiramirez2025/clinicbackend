@@ -420,10 +420,25 @@ class AppointmentController {
       // Crear cita
       const appointment = await prisma.appointment.create({
         data: {
-          userId,
-          clinicId: treatment.clinicId,
-          professionalId: professionalId || null,
-          treatmentId,
+          // Relaciones usando connect
+          user: {
+            connect: { id: userId }
+          },
+          clinic: {
+            connect: { id: treatment.clinicId }
+          },
+          treatment: {
+            connect: { id: treatmentId }
+          },
+          
+          // Professional es opcional, solo conectar si existe
+          ...(professionalId && {
+            professional: {
+              connect: { id: professionalId }
+            }
+          }),
+          
+          // Resto de campos normales (sin cambios)
           scheduledDate: new Date(date),
           scheduledTime: new Date(`${date}T${time}:00`),
           durationMinutes: treatment.durationMinutes,
@@ -436,7 +451,8 @@ class AppointmentController {
         include: {
           treatment: true,
           professional: true,
-          clinic: true
+          clinic: true,
+          user: true  // ✅ Agregar user también
         }
       });
 
