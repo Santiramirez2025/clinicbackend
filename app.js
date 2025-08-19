@@ -1,5 +1,5 @@
 // ============================================================================
-// app.js - Belleza Estética API v2.0 - PRODUCTION READY ✅
+// app.js - Belleza Estética API v2.0 - PRODUCTION READY ✅ FIXED
 // ============================================================================
 const express = require('express');
 const { PrismaClient } = require('@prisma/client');
@@ -18,7 +18,7 @@ const morgan = require('morgan');
 const isProduction = process.env.NODE_ENV === 'production';
 const PORT = process.env.PORT || 3001;
 
-console.log('🚀 Belleza Estética API v2.0');
+console.log('🚀 Belleza Estética API v2.0 - FIXED');
 console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
 console.log(`🌐 Port: ${PORT}`);
 
@@ -110,7 +110,7 @@ app.get('/health', async (req, res) => {
     timestamp: new Date().toISOString(),
     uptime: Math.floor(process.uptime()),
     environment: process.env.NODE_ENV || 'development',
-    version: '2.0.0',
+    version: '2.0.1-FIXED',
     port: PORT
   };
 
@@ -140,7 +140,7 @@ app.get('/health', async (req, res) => {
 app.get('/', (req, res) => {
   res.json({
     message: '🏥 Belleza Estética API',
-    version: '2.0.0',
+    version: '2.0.1-FIXED',
     status: 'running',
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development',
@@ -208,7 +208,7 @@ if (profileRoutes) {
 }
 
 // ============================================================================
-// CLÍNICAS ENDPOINT
+// CLÍNICAS ENDPOINT - ✅ FIXED: REMOVED DESCRIPTION FIELD
 // ============================================================================
 app.get('/api/clinics', async (req, res) => {
   try {
@@ -230,6 +230,7 @@ app.get('/api/clinics', async (req, res) => {
           logoUrl: true,
           address: true,
           phone: true
+          // ✅ REMOVED: description: true, - FIELD DOESN'T EXIST IN SCHEMA
         },
         orderBy: { name: 'asc' }
       }),
@@ -238,6 +239,8 @@ app.get('/api/clinics', async (req, res) => {
       )
     ]);
     
+    console.log(`✅ Retrieved ${clinics.length} clinics successfully`);
+    
     res.json({
       success: true,
       data: clinics,
@@ -245,10 +248,10 @@ app.get('/api/clinics', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Clinics endpoint error:', error);
+    console.error('❌ Clinics endpoint error:', error.message);
     res.status(500).json({
       success: false,
-      error: { message: 'Error retrieving clinics' }
+      error: { message: 'Error retrieving clinics', details: error.message }
     });
   }
 });
@@ -269,6 +272,21 @@ app.get('/api/clinics/:id', async (req, res) => {
         where: { 
           OR: [{ id }, { slug: id }],
           isActive: true 
+        },
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          city: true,
+          logoUrl: true,
+          address: true,
+          phone: true,
+          email: true,
+          websiteUrl: true,
+          timezone: true,
+          isActive: true,
+          createdAt: true
+          // ✅ REMOVED: description field - doesn't exist in schema
         }
       }),
       new Promise((_, reject) => 
@@ -283,13 +301,15 @@ app.get('/api/clinics/:id', async (req, res) => {
       });
     }
     
+    console.log(`✅ Retrieved clinic details for: ${clinic.name}`);
+    
     res.json({ success: true, data: clinic });
     
   } catch (error) {
-    console.error('❌ Clinic detail error:', error);
+    console.error('❌ Clinic detail error:', error.message);
     res.status(500).json({
       success: false,
-      error: { message: 'Error retrieving clinic details' }
+      error: { message: 'Error retrieving clinic details', details: error.message }
     });
   }
 });
@@ -320,7 +340,7 @@ app.use('*', (req, res) => {
 
 // Global error handler
 app.use((err, req, res, next) => {
-  console.error('❌ Global error:', err);
+  console.error('❌ Global error:', err.message);
   
   if (res.headersSent) return next(err);
   
@@ -351,7 +371,12 @@ const startServer = async () => {
             setTimeout(() => reject(new Error('DB connection timeout')), 10000)
           )
         ]);
-        console.log('✅ Database connected');
+        console.log('✅ Database connected successfully');
+        
+        // Test database with a simple query
+        const testQuery = await prisma.$queryRaw`SELECT 1 as connection_test`;
+        console.log('✅ Database test query successful');
+        
       } catch (dbError) {
         console.warn('⚠️ Database connection failed:', dbError.message);
         console.log('💡 Server will continue without database');
@@ -365,18 +390,24 @@ const startServer = async () => {
       console.log(`   📊 Database: ${prisma ? 'connected' : 'disconnected'}`);
       console.log(`   🔧 Environment: ${process.env.NODE_ENV || 'development'}`);
       console.log(`   ✅ Health check: http://localhost:${PORT}/health`);
+      console.log(`   🏥 Clinics: http://localhost:${PORT}/api/clinics`);
+      console.log(`   💉 Treatments: http://localhost:${PORT}/api/treatments`);
+      console.log(`   📅 Appointments: http://localhost:${PORT}/api/appointments`);
     });
     
     // Graceful shutdown
     const shutdown = (signal) => {
-      console.log(`\n📡 Received ${signal}. Shutting down...`);
+      console.log(`\n📡 Received ${signal}. Shutting down gracefully...`);
       server.close(async () => {
         try {
-          if (prisma) await prisma.$disconnect();
+          if (prisma) {
+            await prisma.$disconnect();
+            console.log('✅ Database disconnected');
+          }
           console.log('✅ Server stopped gracefully');
           process.exit(0);
         } catch (error) {
-          console.error('❌ Shutdown error:', error);
+          console.error('❌ Shutdown error:', error.message);
           process.exit(1);
         }
       });
@@ -388,7 +419,7 @@ const startServer = async () => {
     return server;
     
   } catch (error) {
-    console.error('❌ Failed to start server:', error);
+    console.error('❌ Failed to start server:', error.message);
     process.exit(1);
   }
 };
@@ -399,7 +430,7 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 process.on('uncaughtException', (error) => {
-  console.error('❌ Uncaught Exception:', error);
+  console.error('❌ Uncaught Exception:', error.message);
   process.exit(1);
 });
 
