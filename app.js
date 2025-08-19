@@ -1,5 +1,5 @@
 // ============================================================================
-// app.js - Belleza Estética API v2.0 - PRODUCTION READY ✅ FIXED
+// app.js - Belleza Estética API v2.0 - PRODUCTION READY ✅ UPDATED
 // ============================================================================
 const express = require('express');
 const { PrismaClient } = require('@prisma/client');
@@ -18,7 +18,7 @@ const morgan = require('morgan');
 const isProduction = process.env.NODE_ENV === 'production';
 const PORT = process.env.PORT || 3001;
 
-console.log('🚀 Belleza Estética API v2.0 - FIXED');
+console.log('🚀 Belleza Estética API v2.0 - UPDATED');
 console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
 console.log(`🌐 Port: ${PORT}`);
 
@@ -41,6 +41,7 @@ const authRoutes = safeImport('./src/routes/auth.routes', 'Auth');
 const treatmentRoutes = safeImport('./src/routes/treatment.routes', 'Treatment');
 const appointmentRoutes = safeImport('./src/routes/appointment.routes', 'Appointment');
 const profileRoutes = safeImport('./src/routes/profile.routes', 'Profile');
+const professionalRoutes = safeImport('./src/routes/professional.routes', 'Professional'); // ✅ ADDED
 
 // Rutas opcionales
 const dashboardRoutes = safeImport('./src/routes/dashboard.routes', 'Dashboard');
@@ -86,10 +87,10 @@ app.use(cors({
   allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization', 'Cache-Control']
 }));
 
-// Rate limiting
+// Rate limiting - ✅ IMPROVED
 app.use(rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 5000,
+  max: 1000, // ✅ REDUCED from 5000 for better security
   standardHeaders: true,
   legacyHeaders: false,
   skip: (req) => req.path === '/health'
@@ -110,7 +111,7 @@ app.get('/health', async (req, res) => {
     timestamp: new Date().toISOString(),
     uptime: Math.floor(process.uptime()),
     environment: process.env.NODE_ENV || 'development',
-    version: '2.0.1-FIXED',
+    version: '2.0.2-UPDATED', // ✅ UPDATED version
     port: PORT
   };
 
@@ -135,12 +136,12 @@ app.get('/health', async (req, res) => {
 });
 
 // ============================================================================
-// ROOT ENDPOINT
+// ROOT ENDPOINT - ✅ UPDATED
 // ============================================================================
 app.get('/', (req, res) => {
   res.json({
     message: '🏥 Belleza Estética API',
-    version: '2.0.1-FIXED',
+    version: '2.0.2-UPDATED',
     status: 'running',
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development',
@@ -150,7 +151,8 @@ app.get('/', (req, res) => {
       treatments: '/api/treatments',
       appointments: '/api/appointments',
       profile: '/api/user',
-      clinics: '/api/clinics'
+      clinics: '/api/clinics',
+      professionals: '/api/professionals' // ✅ ADDED
     }
   });
 });
@@ -207,6 +209,18 @@ if (profileRoutes) {
   });
 }
 
+// ✅ PROFESSIONALS ROUTES - ADDED
+if (professionalRoutes) {
+  app.use('/api/professionals', professionalRoutes);
+} else {
+  app.use('/api/professionals', (req, res) => {
+    res.status(503).json({
+      success: false,
+      error: { message: 'Professional service not available' }
+    });
+  });
+}
+
 // ============================================================================
 // CLÍNICAS ENDPOINT - ✅ FIXED: REMOVED DESCRIPTION FIELD
 // ============================================================================
@@ -230,7 +244,6 @@ app.get('/api/clinics', async (req, res) => {
           logoUrl: true,
           address: true,
           phone: true
-          // ✅ REMOVED: description: true, - FIELD DOESN'T EXIST IN SCHEMA
         },
         orderBy: { name: 'asc' }
       }),
@@ -286,7 +299,6 @@ app.get('/api/clinics/:id', async (req, res) => {
           timezone: true,
           isActive: true,
           createdAt: true
-          // ✅ REMOVED: description field - doesn't exist in schema
         }
       }),
       new Promise((_, reject) => 
@@ -393,6 +405,7 @@ const startServer = async () => {
       console.log(`   🏥 Clinics: http://localhost:${PORT}/api/clinics`);
       console.log(`   💉 Treatments: http://localhost:${PORT}/api/treatments`);
       console.log(`   📅 Appointments: http://localhost:${PORT}/api/appointments`);
+      console.log(`   👨‍⚕️ Professionals: http://localhost:${PORT}/api/professionals`); // ✅ ADDED
     });
     
     // Graceful shutdown
