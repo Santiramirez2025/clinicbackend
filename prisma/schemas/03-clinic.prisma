@@ -1,0 +1,184 @@
+// ============================================================================
+// 🏥 DOMINIO: CLÍNICAS - ESTABLECIMIENTOS Y CONFIGURACIÓN REGIONAL
+// ============================================================================
+// Modelos incluidos: Clinic, RegionalConfig
+// Dependencias: 01-base.prisma (enums), 02-auth.prisma (User, Professional)
+// Última actualización: 2025-08-20
+// ============================================================================
+
+// ============================================================================
+// 🏢 MODELO CLINIC - ESTABLECIMIENTO CON COMPLIANCE LEGAL COMPLETO
+// ============================================================================
+
+/// Clínica de estética con configuración legal y de negocio completa
+/// Incluye compliance para diferentes comunidades autónomas españolas
+model Clinic {
+  /// Identificador único de la clínica
+  id           String  @id @default(cuid())
+  
+  // Información básica de la clínica
+  name         String  @db.VarChar(100)
+  slug         String  @unique @db.VarChar(50)
+  email        String  @unique @db.VarChar(100)
+  passwordHash String  @map("password_hash") @db.VarChar(255)
+  phone        String  @db.VarChar(20)
+  
+  // Dirección y localización
+  address      String  @db.Text
+  city         String  @db.VarChar(50)
+  postalCode   String? @map("postal_code") @db.VarChar(10)
+  country      String  @default("ES") @db.VarChar(2)
+  timezone     String  @default("Europe/Madrid") @db.VarChar(50)
+  
+  // Branding y presencia digital
+  logoUrl      String? @map("logo_url") @db.Text
+  websiteUrl   String? @map("website_url") @db.Text
+  brandColors  String? @map("brand_colors") @db.Text // JSON con colores corporativos
+
+  // ✅ INFORMACIÓN LEGAL Y SANITARIA OBLIGATORIA
+  medicalLicense       String?  @map("medical_license") @db.VarChar(50)
+  healthRegistration   String?  @map("health_registration") @db.VarChar(50)
+  autonomousCommunity  String?  @map("autonomous_community") @db.VarChar(50)
+  taxId                String?  @map("tax_id") @db.VarChar(20) // CIF
+  legalCompliance      String?  @map("legal_compliance") @db.Text // JSON
+  
+  // ✅ CONFIGURACIÓN DE CONSENTIMIENTOS
+  defaultConsentPolicy     String?  @map("default_consent_policy") @db.Text // JSON
+  requiresDigitalSignature Boolean  @default(false) @map("requires_digital_signature")
+  
+  // ✅ CONFIGURACIÓN DE TRATAMIENTOS Y RIESGOS
+  allowsDirectBookingHighRisk Boolean @default(false) @map("allows_direct_booking_high_risk")
+  consultationMinimumTime     Int?    @map("consultation_minimum_time") // minutos
+  maxAdvanceBookingDays       Int     @default(90) @map("max_advance_booking_days")
+
+  // Configuración de horarios de negocio
+  businessHours         String    @map("business_hours") @db.Text // JSON con horarios
+
+  // Plan de suscripción y límites
+  subscriptionPlan      String    @default("FREE") @map("subscription_plan") @db.VarChar(20)
+  subscriptionExpiresAt DateTime? @map("subscription_expires_at")
+  maxProfessionals      Int       @default(2) @map("max_professionals")
+  maxPatients           Int       @default(100) @map("max_patients")
+
+  // ✅ FEATURES HABILITADAS POR PLAN
+  enableVipProgram      Boolean @default(true) @map("enable_vip_program")
+  enableNotifications   Boolean @default(true) @map("enable_notifications")
+  enableOnlineBooking   Boolean @default(true) @map("enable_online_booking")
+  enablePayments        Boolean @default(false) @map("enable_payments")
+  enableLoyaltyProgram  Boolean @default(true) @map("enable_loyalty_program")
+
+  // Estados de activación y verificación
+  isActive            Boolean @default(true) @map("is_active")
+  isVerified          Boolean @default(false) @map("is_verified")
+  onboardingCompleted Boolean @default(false) @map("onboarding_completed")
+  emailVerified       Boolean @default(false) @map("email_verified")
+
+  // Configuración adicional y metadata
+  settings  String? @db.Text // JSON configuraciones adicionales
+  metadata  String? @db.Text // JSON metadata adicional
+
+  // Timestamps de seguimiento
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  lastLoginAt DateTime? @map("last_login_at")
+
+  // Relaciones con otros módulos
+  professionals        Professional[]
+  users               User[]
+  treatments          Treatment[]
+  appointments        Appointment[]
+  rewardTemplates     RewardTemplate[]
+  offers              Offer[]
+  consentFormTemplates ConsentFormTemplate[]
+  wellnessTips        WellnessTip[]
+  regionalConfig      RegionalConfig?
+
+  @@index([slug], map: "idx_clinic_slug")
+  @@index([city, isActive], map: "idx_clinic_location")
+  @@index([subscriptionPlan, subscriptionExpiresAt], map: "idx_clinic_subscription")
+  @@index([isActive, isVerified], map: "idx_clinic_status")
+  @@index([autonomousCommunity], map: "idx_clinic_autonomous_community")
+  @@map("clinics")
+}
+
+// ============================================================================
+// 🌍 MODELO REGIONAL CONFIG - CONFIGURACIÓN POR COMUNIDAD AUTÓNOMA
+// ============================================================================
+
+/// Configuración específica por comunidad autónoma española
+/// Permite adaptar el sistema a las regulaciones locales de cada región
+model RegionalConfig {
+  /// Identificador único de la configuración
+  id                   String @id @default(cuid())
+  clinicId             String @unique @map("clinic_id")
+  autonomousCommunity  String @map("autonomous_community") @db.VarChar(50)
+  
+  // ✅ CONFIGURACIONES ESPECÍFICAS POR REGIÓN
+  requiresMedicalLicense      Boolean @default(false) @map("requires_medical_license")
+  highRiskRequiresDoctor      Boolean @default(true) @map("high_risk_requires_doctor")
+  mandatoryConsentTypes       String  @default("[]") @map("mandatory_consent_types") @db.Text // JSON
+  minimumConsultationTime     Int?    @map("minimum_consultation_time")
+  
+  // ✅ REGULACIONES ESPECÍFICAS DE TRATAMIENTOS
+  allowedTreatmentTypes       String  @default("[]") @map("allowed_treatment_types") @db.Text // JSON
+  restrictedTreatmentTypes    String  @default("[]") @map("restricted_treatment_types") @db.Text // JSON
+  
+  // ✅ DOCUMENTACIÓN REQUERIDA POR LEY
+  requiredDocumentation       String  @default("[]") @map("required_documentation") @db.Text // JSON
+  specialRequirements         String? @map("special_requirements") @db.Text
+  
+  // ✅ CONFIGURACIÓN DE HORARIOS OBLIGATORIOS
+  restrictedHours             String? @map("restricted_hours") @db.Text // JSON
+  mandatoryBreaks             String? @map("mandatory_breaks") @db.Text // JSON
+  
+  // ✅ CONFIGURACIONES ADICIONALES ESPECÍFICAS
+  maxTreatmentDuration        Int?    @map("max_treatment_duration") // minutos
+  mandatoryWaitingTime        Int?    @map("mandatory_waiting_time") // minutos entre tratamientos
+  requiresParentalConsent     Boolean @default(false) @map("requires_parental_consent")
+  minimumAgeForTreatments     Int?    @map("minimum_age_for_treatments")
+  
+  // ✅ COMPLIANCE ESPECÍFICO POR REGIÓN
+  dataRetentionPeriod         Int?    @map("data_retention_period") // días
+  mandatoryReportingPeriod    Int?    @map("mandatory_reporting_period") // días
+  requiresHealthInspection    Boolean @default(false) @map("requires_health_inspection")
+  inspectionFrequency         Int?    @map("inspection_frequency") // meses
+  
+  // Timestamps
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  
+  // Relación con clínica
+  clinic Clinic @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  
+  @@index([autonomousCommunity], map: "idx_regional_config_community")
+  @@index([clinicId], map: "idx_regional_config_clinic")
+  @@map("regional_configs")
+}
+
+// ============================================================================
+// 📊 ÍNDICES ESTRATÉGICOS PARA PERFORMANCE
+// ============================================================================
+// Índices específicos para queries frecuentes de clínicas:
+//
+// 1. Búsqueda por ubicación y estado:
+//    - idx_clinic_location: Para búsquedas geográficas activas
+//
+// 2. Gestión de suscripciones:
+//    - idx_clinic_subscription: Para control de vencimientos
+//
+// 3. Estados operativos:
+//    - idx_clinic_status: Para filtros de clínicas activas/verificadas
+//
+// 4. Compliance regional:
+//    - idx_clinic_autonomous_community: Para agrupación por región
+//    - idx_regional_config_community: Para configuraciones específicas
+//
+// ============================================================================
+
+// ============================================================================
+// 🔚 FIN DEL MÓDULO DE CLÍNICAS
+// ============================================================================
+// Total de modelos: 2
+// Líneas: ~165
+// Funcionalidad: Gestión de clínicas y configuración regional completa
+// ============================================================================

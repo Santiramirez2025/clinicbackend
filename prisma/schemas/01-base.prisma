@@ -1,0 +1,99 @@
+// ============================================================================
+// 🎯 DOMINIO: BASE - ENUMS GLOBALES Y TIPOS FUNDAMENTALES
+// ============================================================================
+// Modelos incluidos: Enums base para todo el sistema
+// Dependencias: Ninguna (base del sistema)
+// Última actualización: 2025-08-20
+// ============================================================================
+
+// ============================================================================
+// ✅ ENUMS DE CLASIFICACIÓN LEGAL Y MÉDICA
+// ============================================================================
+
+/// Nivel de riesgo del tratamiento según regulación española
+/// Determina el tipo de consentimiento y profesional requerido
+enum TreatmentRiskLevel {
+  LOW       // Grupo A - Sin consulta previa obligatoria
+  MEDIUM    // Grupo B - Consulta recomendada  
+  HIGH      // Grupo B - Consulta obligatoria
+  MEDICAL   // Grupo C - Solo personal médico autorizado
+}
+
+/// Tipo de consentimiento requerido según normativa sanitaria
+/// Cada tipo tiene diferentes requisitos legales
+enum ConsentType {
+  SIMPLE    // Consentimiento básico para tratamientos de bajo riesgo
+  INFORMED  // Consentimiento informado con explicación detallada
+  MEDICAL   // Consentimiento médico con validación profesional
+}
+
+/// Flujo de cita según tipo de tratamiento y compliance
+/// Define el proceso de reserva y validación médica
+enum AppointmentType {
+  DIRECT                // Reserva directa sin consulta previa
+  CONSULTATION_ONLY     // Solo consulta médica
+  CONSULTATION_TREATMENT // Consulta + Tratamiento mismo día
+  CONSULTATION_SEPARATE  // Consulta previa obligatoria en cita separada
+}
+
+// ============================================================================
+// 📅 ENUMS DE ESTADO Y FLUJO DE NEGOCIO
+// ============================================================================
+
+/// Estados del ciclo de vida de una cita
+/// Incluye estados para compliance y seguimiento legal
+enum AppointmentStatus {
+  PENDING      // Pendiente de confirmación y validación
+  CONFIRMED    // Confirmada y lista para ejecución
+  IN_PROGRESS  // En progreso - tratamiento iniciado
+  COMPLETED    // Completada exitosamente
+  CANCELLED    // Cancelada por cliente o clínica
+  NO_SHOW      // Cliente no se presentó
+  RESCHEDULED  // Reprogramada a nueva fecha
+}
+
+/// Roles y permisos en el sistema
+/// Define niveles de acceso y funcionalidades
+enum UserRole {
+  CLIENT          // Cliente regular con acceso básico
+  VIP_CLIENT      // Cliente VIP con beneficios premium
+  PROFESSIONAL    // Profesional que realiza tratamientos
+  MANAGER         // Manager de clínica con permisos administrativos
+  ADMIN           // Administrador del sistema con acceso completo
+}
+
+/// Estados de pago según integración con Stripe
+/// Mapea directamente con estados de Stripe para consistencia
+enum PaymentStatus {
+  PENDING           // Pendiente de procesamiento
+  PROCESSING        // Procesando en Stripe
+  COMPLETED         // Completado exitosamente
+  FAILED            // Fallido por error técnico o rechazo
+  CANCELLED         // Cancelado por usuario o sistema
+  REFUNDED          // Reembolsado completamente
+  PARTIALLY_REFUNDED // Reembolsado parcialmente
+}
+
+// ============================================================================
+// 🔔 ENUMS DE COMUNICACIÓN Y MARKETING
+// ============================================================================
+
+/// Tipos de notificaciones para engagement y compliance
+/// Incluye notificaciones legales y de marketing
+enum NotificationType {
+  APPOINTMENT_REMINDER   // Recordatorio automático de cita
+  APPOINTMENT_CONFIRMED  // Confirmación de cita reservada
+  PROMOTION             // Promoción comercial personalizada
+  WELLNESS_TIP          // Consejo de bienestar y cuidado
+  SYSTEM               // Notificación del sistema
+  BIRTHDAY             // Felicitación de cumpleaños
+  VIP_OFFER            // Oferta exclusiva para clientes VIP
+}
+
+// ============================================================================
+// 🔚 FIN DEL MÓDULO BASE
+// ============================================================================
+// Total de enums: 7
+// Líneas: ~80
+// Funcionalidad: Tipos base para todo el sistema
+// ============================================================================

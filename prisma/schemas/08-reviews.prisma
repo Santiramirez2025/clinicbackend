@@ -1,0 +1,53 @@
+// ============================================================================
+// 📁 REVIEWS - SISTEMA DE REVIEWS Y RATINGS CORREGIDO
+// ============================================================================
+
+model AppointmentReview {
+  id            String @id @default(cuid())
+  appointmentId String @unique @map("appointment_id")
+  userId        String @map("user_id")
+  professionalId String @map("professional_id")
+  treatmentId   String @map("treatment_id")
+
+  // Ratings (1-5)
+  overallRating      Int @map("overall_rating")
+  professionalRating Int @map("professional_rating")
+  treatmentRating    Int @map("treatment_rating")
+  facilityRating     Int @map("facility_rating")
+  valueRating        Int @map("value_rating")
+
+  // Review content
+  title   String? @db.VarChar(100)
+  comment String? @db.Text
+  pros    String? @db.Text
+  cons    String? @db.Text
+
+  // Recommendation
+  wouldRecommend Boolean @map("would_recommend")
+  wouldReturn    Boolean @map("would_return")
+
+  // Moderation
+  isApproved Boolean @default(false) @map("is_approved")
+  isVisible  Boolean @default(true) @map("is_visible")
+  moderatedBy String? @map("moderated_by")
+  moderatedAt DateTime? @map("moderated_at")
+
+  // Metadata
+  isAnonymous Boolean @default(false) @map("is_anonymous")
+  helpfulVotes Int @default(0) @map("helpful_votes")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relaciones corregidas con nombres específicos
+  appointment  Appointment  @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  user         User         @relation("UserAppointmentReviews", fields: [userId], references: [id], onDelete: Cascade)
+  professional Professional @relation("ProfessionalAppointmentReviews", fields: [professionalId], references: [id], onDelete: Cascade)
+  treatment    Treatment    @relation("TreatmentAppointmentReviews", fields: [treatmentId], references: [id], onDelete: Cascade)
+
+  @@index([userId], map: "idx_review_user")
+  @@index([professionalId, isApproved], map: "idx_review_professional")
+  @@index([treatmentId, isApproved], map: "idx_review_treatment")
+  @@index([overallRating, isApproved], map: "idx_review_rating")
+  @@map("appointment_reviews")
+}

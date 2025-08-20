@@ -1,0 +1,485 @@
+// ============================================================================
+// 🎯 DOMINIO: MARKETING - OFERTAS, GAMIFICACIÓN Y ENGAGEMENT
+// ============================================================================
+// Modelos incluidos: Offer, OfferRedemption, RewardTemplate, RewardRedemption, NotificationLog, Invitation, WellnessTip
+// Dependencias: 01-base.prisma (enums), 02-auth.prisma (User), 03-clinic.prisma (Clinic)
+// Última actualización: 2025-08-20
+// ============================================================================
+
+// ============================================================================
+// 🎁 MODELO OFFER - SISTEMA DE OFERTAS Y PROMOCIONES
+// ============================================================================
+
+/// Oferta comercial con targeting inteligente y analytics
+/// Sistema completo de promociones con segmentación avanzada
+model Offer {
+  /// Identificador único de la oferta
+  id       String @id @default(cuid())
+  clinicId String @map("clinic_id")
+
+  // ✅ INFORMACIÓN BÁSICA DE LA OFERTA
+  title            String @db.VarChar(100)
+  description      String @db.Text
+  shortDescription String? @map("short_description") @db.VarChar(200)
+  terms            String? @db.Text
+
+  // ✅ CONFIGURACIÓN DE DESCUENTO
+  discountType  String  @default("PERCENTAGE") @db.VarChar(20) // PERCENTAGE, FIXED_AMOUNT, BOGO
+  discountValue Decimal @db.Decimal(8,2)
+  originalPrice Decimal? @map("original_price") @db.Decimal(8,2)
+  finalPrice    Decimal? @map("final_price") @db.Decimal(8,2)
+  minPurchase   Decimal? @map("min_purchase") @db.Decimal(8,2)
+
+  // ✅ VALIDEZ TEMPORAL
+  validFrom  DateTime @map("valid_from")
+  validUntil DateTime @map("valid_until")
+
+  // ✅ TARGETING Y SEGMENTACIÓN AVANZADA
+  targetAudience    String  @default("ALL") @map("target_audience") @db.VarChar(30)
+  minAge            Int?    @map("min_age")
+  maxAge            Int?    @map("max_age")
+  genderTarget      String? @map("gender_target") @db.VarChar(20)
+  loyaltyTierTarget String? @map("loyalty_tier_target") @db.VarChar(20)
+  vipOnly           Boolean @default(false) @map("vip_only")
+  newClientsOnly    Boolean @default(false) @map("new_clients_only")
+
+  // ✅ TRATAMIENTOS Y CATEGORÍAS APLICABLES
+  treatmentIds String @default("[]") @map("treatment_ids") @db.Text // JSON
+  categoryIds  String @default("[]") @map("category_ids") @db.Text // JSON
+
+  // ✅ LÍMITES DE USO Y CONTROL
+  maxUses        Int? @map("max_uses")
+  maxUsesPerUser Int  @default(1) @map("max_uses_per_user")
+  currentUses    Int  @default(0) @map("current_uses")
+
+  // ✅ CONFIGURACIÓN VISUAL Y MARKETING
+  imageUrl        String? @map("image_url") @db.Text
+  backgroundColor String? @map("background_color") @db.VarChar(7)
+  textColor       String? @map("text_color") @db.VarChar(7)
+  priority        Int     @default(1)
+  category        String  @default("GENERAL") @db.VarChar(20)
+
+  // ✅ CONFIGURACIÓN DE NOTIFICACIONES
+  sendNotification     Boolean @default(true) @map("send_notification")
+  notificationSchedule String? @map("notification_schedule") @db.Text // JSON
+
+  // ✅ ESTADOS Y CONFIGURACIÓN
+  isActive   Boolean @default(true) @map("is_active")
+  isFeatured Boolean @default(false) @map("is_featured")
+  autoApply  Boolean @default(false) @map("auto_apply")
+
+  // ✅ CÓDIGOS Y METADATA
+  code String? @unique @db.VarChar(20)
+  tags String? @db.Text // JSON array
+
+  // ✅ ANALYTICS DE PERFORMANCE
+  viewCount       Int     @default(0) @map("view_count")
+  redemptionCount Int     @default(0) @map("redemption_count")
+  conversionRate  Decimal @default(0) @map("conversion_rate") @db.Decimal(5,4)
+  totalRevenue    Decimal @default(0) @map("total_revenue") @db.Decimal(10,2)
+
+  // Timestamps
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relaciones
+  clinic           Clinic            @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  offerRedemptions OfferRedemption[]
+
+  @@index([clinicId, isActive], map: "idx_offer_clinic_active")
+  @@index([validFrom, validUntil], map: "idx_offer_validity")
+  @@index([targetAudience, category], map: "idx_offer_targeting")
+  @@index([code], map: "idx_offer_code")
+  @@index([isFeatured, priority], map: "idx_offer_featured")
+  @@map("offers")
+}
+
+// ============================================================================
+// 🎫 MODELO OFFER REDEMPTION - CANJES DE OFERTAS
+// ============================================================================
+
+/// Canje individual de una oferta por un usuario
+/// Tracking completo del ciclo de vida del cupón
+model OfferRedemption {
+  /// Identificador único del canje
+  id            String  @id @default(cuid())
+  offerId       String  @map("offer_id")
+  userId        String  @map("user_id")
+  appointmentId String? @map("appointment_id")
+
+  // ✅ INFORMACIÓN DEL CANJE
+  redeemedAt      DateTime @default(now()) @map("redeemed_at")
+  originalPrice   Decimal  @map("original_price") @db.Decimal(8,2)
+  discountApplied Decimal  @map("discount_applied") @db.Decimal(8,2)
+  finalPrice      Decimal  @map("final_price") @db.Decimal(8,2)
+
+  // ✅ ESTADOS Y VALIDEZ
+  status    String    @default("ACTIVE") @db.VarChar(20) // ACTIVE, USED, EXPIRED, CANCELLED
+  code      String    @unique @db.VarChar(50)
+  usedAt    DateTime? @map("used_at")
+  expiresAt DateTime  @map("expires_at")
+
+  // ✅ METADATA Y TRACKING
+  notes         String? @db.Text
+  usageLocation String? @map("usage_location") @db.VarChar(20)
+  ipAddress     String? @map("ip_address") @db.VarChar(45)
+  deviceInfo    String? @map("device_info") @db.Text // JSON
+
+  // Timestamps
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relaciones
+  offer       Offer        @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  appointment Appointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+
+  @@index([userId, status], map: "idx_offer_redemption_user")
+  @@index([offerId, status], map: "idx_offer_redemption_offer")
+  @@index([expiresAt], map: "idx_offer_redemption_expiry")
+  @@index([code], map: "idx_offer_redemption_code")
+  @@map("offer_redemptions")
+}
+
+// ============================================================================
+// 🏆 MODELO REWARD TEMPLATE - PLANTILLAS DE RECOMPENSAS
+// ============================================================================
+
+/// Plantilla de recompensa para el sistema de gamificación
+/// Configurable por clínica con analytics de popularidad
+model RewardTemplate {
+  /// Identificador único de la plantilla
+  id       String @id @default(cuid())
+  clinicId String @map("clinic_id")
+
+  // ✅ INFORMACIÓN BÁSICA
+  name             String @db.VarChar(100)
+  description      String @db.Text
+  shortDescription String? @map("short_description") @db.VarChar(200)
+  type             String @db.VarChar(30) // DISCOUNT, UPGRADE, FREE_SERVICE
+
+  // ✅ CONFIGURACIÓN DEL VALOR
+  value      Decimal @db.Decimal(8,2)
+  valueType  String  @default("PERCENTAGE") @map("value_type") @db.VarChar(20)
+  pointsCost Int     @map("points_cost")
+  marginCost Decimal @map("margin_cost") @db.Decimal(8,2)
+
+  // ✅ RESTRICCIONES Y CONDICIONES
+  conditions      String? @db.Text // JSON
+  validityDays    Int     @default(30) @map("validity_days")
+  maxUsesPerMonth Int     @default(10) @map("max_uses_per_month")
+  maxUsesPerUser  Int     @default(1) @map("max_uses_per_user")
+  minLoyaltyScore Int     @default(0) @map("min_loyalty_score")
+  targetUserType  String? @map("target_user_type") @db.VarChar(20)
+
+  // ✅ TRATAMIENTOS APLICABLES
+  applicableTreatments String? @map("applicable_treatments") @db.Text // JSON
+  excludedTreatments   String? @map("excluded_treatments") @db.Text // JSON
+
+  // ✅ CONFIGURACIÓN VISUAL
+  iconName String  @map("icon_name") @db.VarChar(50)
+  color    String? @db.VarChar(7)
+  imageUrl String? @map("image_url") @db.Text
+  badge    String? @db.VarChar(20)
+
+  // ✅ ANALYTICS Y OPTIMIZACIÓN
+  popularity     Decimal @default(0) @db.Decimal(5,4)
+  conversionRate Decimal @default(0) @map("conversion_rate") @db.Decimal(5,4)
+  seasonality    String? @db.Text // JSON
+
+  // ✅ ESTADOS Y CONFIGURACIÓN
+  isActive   Boolean @default(true) @map("is_active")
+  isFeatured Boolean @default(false) @map("is_featured")
+  isLimited  Boolean @default(false) @map("is_limited")
+
+  // ✅ CONFIGURACIÓN AVANZADA
+  autoAssign   Boolean @default(false) @map("auto_assign")
+  stackable    Boolean @default(false)
+  transferable Boolean @default(false)
+
+  // ✅ LÍMITES DE STOCK
+  stockLimit     Int? @map("stock_limit")
+  stockRemaining Int? @map("stock_remaining")
+
+  // Timestamps
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relaciones
+  clinic      Clinic             @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  redemptions RewardRedemption[]
+
+  @@index([clinicId, isActive], map: "idx_reward_template_clinic")
+  @@index([pointsCost, isActive], map: "idx_reward_template_cost")
+  @@index([isFeatured, popularity], map: "idx_reward_template_featured")
+  @@index([type, isActive], map: "idx_reward_template_type")
+  @@map("reward_templates")
+}
+
+// ============================================================================
+// 🎁 MODELO REWARD REDEMPTION - CANJES DE RECOMPENSAS
+// ============================================================================
+
+/// Canje individual de una recompensa por puntos de belleza
+/// Sistema completo de gestión de cupones y transferencias
+model RewardRedemption {
+  /// Identificador único del canje
+  id            String  @id @default(cuid())
+  userId        String  @map("user_id")
+  templateId    String  @map("template_id")
+  appointmentId String? @map("appointment_id")
+
+  // ✅ INFORMACIÓN DEL CANJE
+  code           String  @unique @db.VarChar(50)
+  status         String  @default("ACTIVE") @db.VarChar(20) // ACTIVE, USED, EXPIRED
+  pointsUsed     Int     @map("points_used")
+  discountAmount Decimal? @map("discount_amount") @db.Decimal(8,2)
+
+  // ✅ VALIDEZ Y USO
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+
+  // ✅ SISTEMA DE TRANSFERENCIA
+  transferredTo String?   @map("transferred_to")
+  transferredAt DateTime? @map("transferred_at")
+  transferCode  String?   @map("transfer_code") @db.VarChar(20)
+
+  // ✅ METADATA DE USO
+  notes         String? @db.Text
+  usageLocation String? @map("usage_location") @db.VarChar(20)
+  ipAddress     String? @map("ip_address") @db.VarChar(45)
+
+  // Timestamps
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relaciones
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  template    RewardTemplate @relation(fields: [templateId], references: [id])
+  appointment Appointment?   @relation(fields: [appointmentId], references: [id])
+
+  @@index([userId, status], map: "idx_reward_redemption_user")
+  @@index([templateId], map: "idx_reward_redemption_template")
+  @@index([expiresAt], map: "idx_reward_redemption_expiry")
+  @@index([code], map: "idx_reward_redemption_code")
+  @@map("reward_redemptions")
+}
+
+// ============================================================================
+// 🔔 MODELO NOTIFICATION LOG - SISTEMA DE NOTIFICACIONES
+// ============================================================================
+
+/// Log completo de notificaciones enviadas con analytics
+/// Tracking de engagement y optimización de comunicaciones
+model NotificationLog {
+  /// Identificador único de la notificación
+  id       String  @id @default(cuid())
+  userId   String  @map("user_id")
+  clinicId String? @map("clinic_id")
+
+  // ✅ TIPO Y CONTENIDO
+  type     NotificationType
+  category String? @db.VarChar(30)
+  title    String @db.VarChar(200)
+  body     String @db.Text
+  imageUrl String? @map("image_url") @db.Text
+
+  // ✅ ESTADO DE ENTREGA
+  sentAt      DateTime @default(now()) @map("sent_at")
+  delivered   Boolean  @default(false)
+  deliveredAt DateTime? @map("delivered_at")
+  opened      Boolean  @default(false)
+  openedAt    DateTime? @map("opened_at")
+  clicked     Boolean  @default(false)
+  clickedAt   DateTime? @map("clicked_at")
+
+  // ✅ CONFIGURACIÓN TÉCNICA
+  channel      String  @default("PUSH") @db.VarChar(10) // PUSH, EMAIL, SMS
+  data         String? @db.Text // JSON adicional
+  pushToken    String? @map("push_token") @db.Text
+  platform     String? @db.VarChar(10) // ios, android
+  deepLink     String? @map("deep_link") @db.Text
+
+  // ✅ GESTIÓN DE ERRORES
+  error        String? @db.Text
+  retryCount   Int     @default(0) @map("retry_count")
+  lastRetryAt  DateTime? @map("last_retry_at")
+
+  // ✅ CAMPAÑA Y SEGMENTACIÓN
+  campaignId   String? @map("campaign_id") @db.VarChar(50)
+  batchId      String? @map("batch_id") @db.VarChar(50)
+  
+  // ✅ PERSONALIZACIÓN
+  isPersonalized Boolean @default(false) @map("is_personalized")
+  userSegment    String? @map("user_segment") @db.VarChar(50)
+
+  // Timestamps
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relaciones
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type], map: "idx_notification_user_type")
+  @@index([sentAt], map: "idx_notification_date")
+  @@index([delivered, opened], map: "idx_notification_engagement")
+  @@index([clinicId, type], map: "idx_notification_clinic")
+  @@index([campaignId], map: "idx_notification_campaign")
+  @@map("notification_logs")
+}
+
+// ============================================================================
+// 👥 MODELO INVITATION - SISTEMA DE REFERIDOS
+// ============================================================================
+
+/// Sistema de invitaciones y referidos con tracking completo
+/// Gamificación de adquisición de nuevos clientes
+model Invitation {
+  /// Identificador único de la invitación
+  id           String  @id @default(cuid())
+  inviterId    String  @map("inviter_id")
+  clinicId     String  @map("clinic_id")
+  inviteeEmail String  @map("invitee_email") @db.VarChar(100)
+  inviteeName  String? @map("invitee_name") @db.VarChar(100)
+
+  // ✅ ESTADO Y RECOMPENSAS
+  status       String @default("PENDING") @db.VarChar(20) // PENDING, ACCEPTED, EXPIRED
+  rewardPoints Int    @default(50) @map("reward_points")
+  bonusPoints  Int    @default(0) @map("bonus_points")
+
+  // ✅ VALIDEZ Y ACEPTACIÓN
+  expiresAt  DateTime  @map("expires_at")
+  acceptedAt DateTime? @map("accepted_at")
+  acceptedBy String?   @map("accepted_by") // User ID que aceptó
+
+  // ✅ PERSONALIZACIÓN Y COMUNICACIÓN
+  message      String? @db.Text
+  inviteCode   String  @unique @map("invite_code") @db.VarChar(20)
+  shareChannel String? @map("share_channel") @db.VarChar(20) // EMAIL, SMS, WHATSAPP
+
+  // ✅ TRACKING DE ENGAGEMENT
+  sentAt       DateTime? @map("sent_at")
+  viewedAt     DateTime? @map("viewed_at")
+  clickedAt    DateTime? @map("clicked_at")
+
+  // ✅ ANALYTICS
+  conversionValue Decimal? @map("conversion_value") @db.Decimal(8,2)
+  lifetimeValue   Decimal? @map("lifetime_value") @db.Decimal(10,2)
+
+  // Timestamps
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relaciones
+  inviter User @relation(fields: [inviterId], references: [id], onDelete: Cascade)
+
+  @@index([inviterId, status], map: "idx_invitation_inviter")
+  @@index([inviteCode], map: "idx_invitation_code")
+  @@index([expiresAt], map: "idx_invitation_expiry")
+  @@index([inviteeEmail], map: "idx_invitation_email")
+  @@index([clinicId, status], map: "idx_invitation_clinic")
+  @@map("invitations")
+}
+
+// ============================================================================
+// 💡 MODELO WELLNESS TIP - CONSEJOS DE BIENESTAR
+// ============================================================================
+
+/// Sistema de consejos de bienestar con targeting inteligente
+/// Content marketing personalizado por perfil de usuario
+model WellnessTip {
+  /// Identificador único del consejo
+  id       String  @id @default(cuid())
+  clinicId String? @map("clinic_id")
+
+  // ✅ CONTENIDO PRINCIPAL
+  title    String @db.VarChar(100)
+  content  String @db.Text
+  excerpt  String? @db.VarChar(200)
+  category String @db.VarChar(30) // skincare, nutrition, lifestyle, treatments
+
+  // ✅ TARGETING INTELIGENTE
+  targetAge       String? @map("target_age") @db.VarChar(20)
+  targetGender    String? @map("target_gender") @db.VarChar(20)
+  targetSkinType  String? @map("target_skin_type") @db.VarChar(20)
+  seasonality     String? @db.Text // JSON para estacionalidad
+  loyaltyTier     String? @map("loyalty_tier") @db.VarChar(20)
+
+  // ✅ CONFIGURACIÓN VISUAL
+  iconName String  @map("icon_name") @db.VarChar(50)
+  imageUrl String? @map("image_url") @db.Text
+  color    String? @db.VarChar(7)
+  videoUrl String? @map("video_url") @db.Text
+
+  // ✅ CONFIGURACIÓN Y ESTADOS
+  isActive   Boolean @default(true) @map("is_active")
+  isFeatured Boolean @default(false) @map("is_featured")
+  priority   Int     @default(1)
+  difficulty String  @default("EASY") @db.VarChar(20) // EASY, MEDIUM, HARD
+
+  // ✅ ENGAGEMENT Y ANALYTICS
+  views     Int @default(0)
+  likes     Int @default(0)
+  shares    Int @default(0)
+  bookmarks Int @default(0)
+  rating    Decimal? @db.Decimal(3,2)
+
+  // ✅ METADATA Y AUTORÍA
+  tags       String? @db.Text // JSON array
+  authorName String? @map("author_name") @db.VarChar(100)
+  sourceUrl  String? @map("source_url") @db.Text
+  readTime   Int?    @map("read_time") // minutos estimados
+
+  // ✅ SEO Y MARKETING
+  seoTitle       String? @map("seo_title") @db.VarChar(200)
+  seoDescription String? @map("seo_description") @db.Text
+
+  // Timestamps
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  publishedAt DateTime? @map("published_at")
+
+  // Relaciones
+  clinic Clinic? @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+
+  @@index([clinicId, isActive], map: "idx_wellness_tip_clinic")
+  @@index([category, isActive], map: "idx_wellness_tip_category")
+  @@index([isFeatured, priority], map: "idx_wellness_tip_featured")
+  @@index([publishedAt], map: "idx_wellness_tip_published")
+  @@index([targetAge, targetGender], map: "idx_wellness_tip_targeting")
+  @@map("wellness_tips")
+}
+
+// ============================================================================
+// 📊 ÍNDICES ESTRATÉGICOS PARA MARKETING Y ENGAGEMENT
+// ============================================================================
+// 
+// 1. GESTIÓN DE OFERTAS:
+//    - idx_offer_validity: Para ofertas activas por fecha
+//    - idx_offer_targeting: Para segmentación de audiencias
+//
+// 2. SISTEMA DE RECOMPENSAS:
+//    - idx_reward_template_cost: Para búsqueda por puntos requeridos
+//    - idx_reward_redemption_expiry: Para gestión de vencimientos
+//
+// 3. NOTIFICACIONES Y ENGAGEMENT:
+//    - idx_notification_engagement: Para analytics de apertura
+//    - idx_notification_campaign: Para reportes de campañas
+//
+// 4. PROGRAMA DE REFERIDOS:
+//    - idx_invitation_code: Para validación de códigos únicos
+//    - idx_invitation_clinic: Para analytics por clínica
+//
+// 5. CONTENT MARKETING:
+//    - idx_wellness_tip_targeting: Para personalización de contenido
+//    - idx_wellness_tip_featured: Para destacados y priorizados
+//
+// ============================================================================
+
+// ============================================================================
+// 🔚 FIN DEL MÓDULO DE MARKETING
+// ============================================================================
+// Total de modelos: 7
+// Líneas: ~290
+// Funcionalidad: Sistema completo de marketing, gamificación y engagement
+// ============================================================================

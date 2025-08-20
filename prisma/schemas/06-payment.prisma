@@ -1,0 +1,330 @@
+// ============================================================================
+// 💰 DOMINIO: PAGOS - STRIPE INTEGRATION Y SUSCRIPCIONES
+// ============================================================================
+// Modelos incluidos: StripeCustomer, PaymentMethod, Payment, VipSubscription, WebhookEvent
+// Dependencias: 01-base.prisma (enums), 02-auth.prisma (User)
+// Última actualización: 2025-08-20
+// ============================================================================
+
+// ============================================================================
+// 👤 MODELO STRIPE CUSTOMER - CLIENTE EN STRIPE
+// ============================================================================
+
+/// Cliente registrado en Stripe para procesamiento de pagos
+/// Sincronizado con datos de User para consistencia
+model StripeCustomer {
+  /// Identificador único interno
+  id               String  @id @default(cuid())
+  userId           String  @unique @map("user_id")
+  stripeCustomerId String  @unique @map("stripe_customer_id") @db.VarChar(100)
+  
+  // Información básica sincronizada con Stripe
+  email            String  @db.VarChar(100)
+  name             String? @db.VarChar(100)
+  phone            String? @db.VarChar(20)
+  address          String? @db.Text // JSON con dirección completa
+  taxId            String? @map("tax_id") @db.VarChar(20)
+
+  // Estados del cliente en Stripe
+  isDeleted Boolean   @default(false) @map("is_deleted")
+  deletedAt DateTime? @map("deleted_at")
+
+  // ✅ BALANCE Y CRÉDITOS
+  accountBalance Decimal @default(0) @map("account_balance") @db.Decimal(10,2)
+  creditBalance  Decimal @default(0) @map("credit_balance") @db.Decimal(10,2)
+
+  // Metadata adicional de Stripe
+  metadata String? @db.Text // JSON con metadata personalizada
+
+  // Timestamps
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relación principal
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([stripeCustomerId], map: "idx_stripe_customer_id")
+  @@index([userId], map: "idx_stripe_customer_user")
+  @@map("stripe_customers")
+}
+
+// ============================================================================
+// 💳 MODELO PAYMENT METHOD - MÉTODOS DE PAGO
+// ============================================================================
+
+/// Método de pago almacenado en Stripe (tarjetas, SEPA, etc.)
+/// Con información de seguridad y gestión de fraude
+model PaymentMethod {
+  /// Identificador único interno
+  id             String @id @default(cuid())
+  userId         String @map("user_id")
+  stripeMethodId String @unique @map("stripe_method_id") @db.VarChar(100)
+
+  // ✅ INFORMACIÓN DE LA TARJETA/MÉTODO
+  type        String  @db.VarChar(20) // card, sepa_debit, ideal, etc.
+  last4       String? @db.VarChar(4)
+  brand       String? @db.VarChar(20) // visa, mastercard, amex
+  expiryMonth Int?    @map("expiry_month")
+  expiryYear  Int?    @map("expiry_year")
+  funding     String? @db.VarChar(20) // credit, debit, prepaid
+  country     String? @db.VarChar(2)
+
+  // ✅ CONFIGURACIÓN Y PREFERENCIAS
+  isDefault Boolean @default(false) @map("is_default")
+  nickname  String? @db.VarChar(50) // "Tarjeta personal", "Tarjeta empresa"
+
+  // ✅ ESTADOS Y VERIFICACIÓN
+  isActive   Boolean   @default(true) @map("is_active")
+  isVerified Boolean   @default(false) @map("is_verified")
+  deletedAt  DateTime? @map("deleted_at")
+
+  // ✅ METADATA DE STRIPE Y SEGURIDAD
+  fingerprint String? @db.VarChar(100) // Stripe fingerprint único
+  metadata    String? @db.Text // JSON metadata adicional
+
+  // ✅ PREVENCIÓN DE FRAUDE
+  failedAttempts Int @default(0) @map("failed_attempts")
+  lastUsedAt     DateTime? @map("last_used_at")
+  
+  // ✅ CONFIGURACIÓN DE 3D SECURE
+  threeDSecureUsage String? @map("three_d_secure_usage") @db.VarChar(20)
+
+  // Timestamps
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relación principal
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isDefault], map: "idx_payment_method_user_default")
+  @@index([userId, isActive], map: "idx_payment_method_user_active")
+  @@index([stripeMethodId], map: "idx_payment_method_stripe")
+  @@map("payment_methods")
+}
+
+// ============================================================================
+// 💸 MODELO PAYMENT - TRANSACCIONES DE PAGO
+// ============================================================================
+
+/// Registro completo de transacciones de pago con Stripe
+/// Incluye facturación, reembolsos y comisiones
+model Payment {
+  /// Identificador único de la transacción
+  id       String  @id @default(cuid())
+  userId   String  @map("user_id")
+  clinicId String? @map("clinic_id")
+
+  // ✅ IDS DE STRIPE PARA TRAZABILIDAD
+  stripeInvoiceId       String? @map("stripe_invoice_id") @db.VarChar(100)
+  stripePaymentIntentId String? @map("stripe_payment_intent_id") @db.VarChar(100)
+  stripeSubscriptionId  String? @map("stripe_subscription_id") @db.VarChar(100)
+  stripeChargeId        String? @map("stripe_charge_id") @db.VarChar(100)
+
+  // ✅ INFORMACIÓN BÁSICA DEL PAGO
+  amount      Decimal @db.Decimal(10,2)
+  currency    String  @default("EUR") @db.VarChar(3)
+  status      PaymentStatus
+  description String? @db.Text
+
+  // ✅ TIPO DE PAGO Y CONTEXTO
+  paymentType String  @default("SUBSCRIPTION") @db.VarChar(20) // SUBSCRIPTION, TREATMENT, TIP
+  relatedId   String? @map("related_id") // ID del appointment, subscription, etc.
+
+  // ✅ INFORMACIÓN DE FACTURACIÓN
+  customerName  String? @map("customer_name") @db.VarChar(100)
+  customerEmail String? @map("customer_email") @db.VarChar(100)
+  invoiceNumber String? @map("invoice_number") @db.VarChar(50)
+  taxAmount     Decimal? @map("tax_amount") @db.Decimal(8,2)
+  taxRate       Decimal? @map("tax_rate") @db.Decimal(5,4) // 0.21 para 21% IVA
+
+  // ✅ MÉTODO DE PAGO UTILIZADO
+  paymentMethodId   String? @map("payment_method_id")
+  paymentMethodType String? @map("payment_method_type") @db.VarChar(20)
+  last4Digits       String? @map("last4_digits") @db.VarChar(4)
+
+  // ✅ GESTIÓN DE ERRORES Y REEMBOLSOS
+  failureReason String? @map("failure_reason") @db.Text
+  refundAmount  Decimal? @map("refund_amount") @db.Decimal(10,2)
+  refundReason  String? @map("refund_reason") @db.Text
+
+  // ✅ TIMESTAMPS DETALLADOS
+  paidAt     DateTime? @map("paid_at")
+  refundedAt DateTime? @map("refunded_at")
+  failedAt   DateTime? @map("failed_at")
+
+  // ✅ METADATA Y CONFIGURACIÓN
+  metadata   String? @db.Text // JSON metadata personalizada
+  receiptUrl String? @map("receipt_url") @db.Text
+
+  // ✅ FEES Y COMISIONES
+  stripeFee      Decimal? @map("stripe_fee") @db.Decimal(8,2)
+  applicationFee Decimal? @map("application_fee") @db.Decimal(8,2)
+  netAmount      Decimal? @map("net_amount") @db.Decimal(10,2)
+
+  // ✅ CONTEXTO DE NEGOCIO
+  isRecurring Boolean @default(false) @map("is_recurring")
+  isRefundable Boolean @default(true) @map("is_refundable")
+
+  // Timestamps base
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relación principal
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status], map: "idx_payment_user_status")
+  @@index([stripeInvoiceId], map: "idx_payment_stripe_invoice")
+  @@index([clinicId, paymentType], map: "idx_payment_clinic_type")
+  @@index([status, paidAt], map: "idx_payment_status_date")
+  @@index([paymentType, status], map: "idx_payment_type_status")
+  @@map("payments")
+}
+
+// ============================================================================
+// 👑 MODELO VIP SUBSCRIPTION - SUSCRIPCIONES PREMIUM
+// ============================================================================
+
+/// Suscripción VIP con integración completa de Stripe
+/// Incluye beneficios, tracking de uso y renovación automática
+model VipSubscription {
+  /// Identificador único de la suscripción
+  id       String @id @default(cuid())
+  userId   String @map("user_id")
+  clinicId String @map("clinic_id")
+
+  // ✅ INTEGRACIÓN STRIPE COMPLETA
+  stripeSubscriptionId String @unique @map("stripe_subscription_id") @db.VarChar(100)
+  stripeCustomerId     String @map("stripe_customer_id") @db.VarChar(100)
+  stripePriceId        String @map("stripe_price_id") @db.VarChar(100)
+
+  // ✅ CONFIGURACIÓN DEL PLAN
+  planType String @map("plan_type") @db.VarChar(20) // MONTHLY, QUARTERLY, YEARLY
+  planName String @map("plan_name") @db.VarChar(50)
+  status   String @default("ACTIVE") @db.VarChar(20) // ACTIVE, CANCELED, PAST_DUE
+
+  // ✅ PRECIOS Y MONEDA
+  price    Decimal @db.Decimal(8,2)
+  currency String  @default("EUR") @db.VarChar(3)
+  discount Decimal @default(0) @db.Decimal(8,2)
+
+  // ✅ PERÍODOS DE FACTURACIÓN
+  currentPeriodStart DateTime  @map("current_period_start")
+  currentPeriodEnd   DateTime  @map("current_period_end")
+  trialStart         DateTime? @map("trial_start")
+  trialEnd           DateTime? @map("trial_end")
+
+  // ✅ GESTIÓN DE CANCELACIÓN
+  cancelAtPeriodEnd Boolean   @default(false) @map("cancel_at_period_end")
+  canceledAt        DateTime? @map("canceled_at")
+  cancelReason      String?   @map("cancel_reason") @db.Text
+  cancelFeedback    String?   @map("cancel_feedback") @db.Text
+
+  // ✅ BENEFICIOS Y CONFIGURACIÓN DEL PLAN
+  monthlyTreatments      Int     @default(2) @map("monthly_treatments")
+  usedTreatments         Int     @default(0) @map("used_treatments")
+  discountPercentage     Int     @default(20) @map("discount_percentage")
+  priorityBooking        Boolean @default(true) @map("priority_booking")
+  freeConsultations      Boolean @default(true) @map("free_consultations")
+  beautyPointsMultiplier Decimal @default(1.5) @map("beauty_points_multiplier") @db.Decimal(3,2)
+
+  // ✅ BENEFICIOS ADICIONALES PREMIUM
+  personalizedRecommendations Boolean @default(true) @map("personalized_recommendations")
+  exclusiveOffers            Boolean @default(true) @map("exclusive_offers")
+  dedicatedSupport           Boolean @default(false) @map("dedicated_support")
+  earlyAccessTreatments      Boolean @default(true) @map("early_access_treatments")
+
+  // ✅ ANALYTICS Y MÉTRICAS DE VALOR
+  totalSavings       Decimal @default(0) @map("total_savings") @db.Decimal(8,2)
+  treatmentsUsed     Int     @default(0) @map("treatments_used")
+  totalInvestment    Decimal @default(0) @map("total_investment") @db.Decimal(10,2)
+  lifetimeValue      Decimal @default(0) @map("lifetime_value") @db.Decimal(10,2)
+
+  // ✅ CONFIGURACIÓN DE RENOVACIÓN
+  autoRenew          Boolean @default(true) @map("auto_renew")
+  renewalReminded    Boolean @default(false) @map("renewal_reminded")
+  renewalReminderAt  DateTime? @map("renewal_reminder_at")
+
+  // Timestamps
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relación principal
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status], map: "idx_vip_subscription_user_status")
+  @@index([status, currentPeriodEnd], map: "idx_vip_subscription_expiry")
+  @@index([stripeSubscriptionId], map: "idx_vip_subscription_stripe")
+  @@index([clinicId, status], map: "idx_vip_subscription_clinic")
+  @@index([planType, status], map: "idx_vip_subscription_plan")
+  @@map("vip_subscriptions")
+}
+
+// ============================================================================
+// 🔗 MODELO WEBHOOK EVENT - EVENTOS DE STRIPE
+// ============================================================================
+
+/// Eventos de webhook de Stripe para sincronización
+/// Permite trazabilidad completa y reprocessing en caso de errores
+model WebhookEvent {
+  /// Identificador único del evento
+  id            String @id @default(cuid())
+  stripeEventId String @unique @map("stripe_event_id") @db.VarChar(100)
+  eventType     String @map("event_type") @db.VarChar(50)
+
+  // ✅ ESTADO DE PROCESAMIENTO
+  processed     Boolean @default(false)
+  error         String? @db.Text
+  retryCount    Int     @default(0) @map("retry_count")
+  lastRetryAt   DateTime? @map("last_retry_at")
+
+  // ✅ DATOS COMPLETOS DEL EVENTO
+  data          String  @db.Text // JSON del evento completo de Stripe
+  livemode      Boolean @default(false)
+  apiVersion    String? @map("api_version") @db.VarChar(20)
+
+  // ✅ METADATA DE PROCESAMIENTO
+  processingStartedAt DateTime? @map("processing_started_at")
+  processingCompletedAt DateTime? @map("processing_completed_at")
+  processingTimeMs    Int?      @map("processing_time_ms")
+
+  // ✅ TIMESTAMPS DE STRIPE Y SISTEMA
+  eventCreatedAt DateTime  @map("event_created_at")
+  processedAt    DateTime? @map("processed_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  @@index([stripeEventId], map: "idx_webhook_stripe_event")
+  @@index([eventType, processed], map: "idx_webhook_processing")
+  @@index([createdAt], map: "idx_webhook_cleanup")
+  @@index([processed, retryCount], map: "idx_webhook_retry")
+  @@map("webhook_events")
+}
+
+// ============================================================================
+// 📊 ÍNDICES ESTRATÉGICOS PARA PERFORMANCE DE PAGOS
+// ============================================================================
+// 
+// 1. GESTIÓN DE CLIENTES STRIPE:
+//    - idx_stripe_customer_id: Búsqueda directa por ID de Stripe
+//    - idx_payment_method_user_default: Método de pago por defecto
+//
+// 2. PROCESAMIENTO DE PAGOS:
+//    - idx_payment_status_date: Para reportes financieros por fecha
+//    - idx_payment_type_status: Para análisis por tipo de pago
+//
+// 3. SUSCRIPCIONES VIP:
+//    - idx_vip_subscription_expiry: Para renovaciones automáticas
+//    - idx_vip_subscription_plan: Para análisis por tipo de plan
+//
+// 4. WEBHOOKS Y SINCRONIZACIÓN:
+//    - idx_webhook_processing: Para eventos pendientes de procesar
+//    - idx_webhook_retry: Para gestión de reintentos
+//
+// ============================================================================
+
+// ============================================================================
+// 🔚 FIN DEL MÓDULO DE PAGOS
+// ============================================================================
+// Total de modelos: 5
+// Líneas: ~280
+// Funcionalidad: Integración completa con Stripe y gestión de suscripciones VIP
+// ============================================================================

@@ -1,0 +1,353 @@
+// ============================================================================
+// 🔐 DOMINIO: AUTENTICACIÓN - USUARIOS, PROFESIONALES Y SESIONES
+// ============================================================================
+// Modelos incluidos: User, Professional, UserSession, PasswordResetToken, ProfessionalPasswordReset
+// Dependencias: 01-base.prisma (enums)
+// Última actualización: 2025-08-20
+// ============================================================================
+
+// ============================================================================
+// 👤 MODELO USER - CLIENTE CON INFORMACIÓN MÉDICA COMPLETA
+// ============================================================================
+
+/// Usuario principal del sistema - puede ser cliente regular o VIP
+/// Incluye información médica para compliance legal y GDPR
+model User {
+  /// Identificador único del usuario
+  id           String    @id @default(cuid())
+  
+  // Datos de autenticación
+  email        String    @unique @db.VarChar(100)
+  passwordHash String    @map("password_hash") @db.VarChar(255)
+  
+  // Información personal básica
+  firstName    String    @map("first_name") @db.VarChar(50)
+  lastName     String    @map("last_name") @db.VarChar(50)
+  phone        String?   @db.VarChar(20)
+  avatarUrl    String?   @map("avatar_url") @db.Text
+  birthDate    DateTime? @map("birth_date") @db.Date
+  gender       String?   @db.VarChar(20) // F, M, Other, PreferNotToSay
+
+  // Clínica principal y rol
+  primaryClinicId String   @map("primary_clinic_id")
+  role            UserRole @default(CLIENT)
+  permissions     String   @default("[]") @db.Text // JSON array
+
+  // ✅ INFORMACIÓN MÉDICA PARA COMPLIANCE LEGAL
+  hasAllergies         Boolean? @map("has_allergies")
+  allergyDetails       String?  @map("allergy_details") @db.Text // JSON
+  hasMedicalConditions Boolean? @map("has_medical_conditions")
+  medicalDetails       String?  @map("medical_details") @db.Text // JSON
+  takingMedications    Boolean? @map("taking_medications")
+  medicationDetails    String?  @map("medication_details") @db.Text // JSON
+  emergencyContact     String?  @map("emergency_contact") @db.Text // JSON
+  
+  // ✅ CONSENTIMIENTOS Y GDPR
+  generalConsentDate    DateTime? @map("general_consent_date")
+  marketingConsentDate  DateTime? @map("marketing_consent_date")
+  dataProcessingConsent Boolean   @default(false) @map("data_processing_consent")
+  gdprAcceptedAt        DateTime? @map("gdpr_accepted_at")
+
+  // Información estética y preferencias
+  skinType             String? @map("skin_type") @db.VarChar(20)
+  treatmentPreferences String? @map("treatment_preferences") @db.Text // JSON
+  beautyGoals          String? @map("beauty_goals") @db.Text // JSON
+
+  // ✅ SISTEMA DE GAMIFICACIÓN Y LEALTAD
+  beautyPoints      Int     @default(0) @map("beauty_points")
+  totalInvestment   Decimal @default(0) @map("total_investment") @db.Decimal(10,2)
+  sessionsCompleted Int     @default(0) @map("sessions_completed")
+  loyaltyTier       String  @default("BRONZE") @map("loyalty_tier") @db.VarChar(20)
+  vipStatus         Boolean @default(false) @map("vip_status")
+  vipSince          DateTime? @map("vip_since")
+
+  // Métricas de engagement
+  totalAppointments     Int     @default(0) @map("total_appointments")
+  cancelledAppointments Int     @default(0) @map("cancelled_appointments")
+  noShowCount           Int     @default(0) @map("no_show_count")
+  averageRating         Decimal? @map("average_rating") @db.Decimal(3,2)
+
+  // ✅ CONFIGURACIÓN DE NOTIFICACIONES
+  pushToken              String?   @map("push_token") @db.Text
+  devicePlatform         String?   @map("device_platform") @db.VarChar(20)
+  deviceInfo             String?   @map("device_info") @db.Text // JSON
+  pushSettings           String?   @map("push_settings") @db.Text // JSON
+  emailNotifications     Boolean   @default(true) @map("email_notifications")
+  smsNotifications       Boolean   @default(false) @map("sms_notifications")
+  marketingNotifications Boolean   @default(true) @map("marketing_notifications")
+  reminderPreference     String    @default("24h") @map("reminder_preference") @db.VarChar(10)
+  lastNotificationSent   DateTime? @map("last_notification_sent")
+
+  // Estados de seguridad
+  isActive      Boolean   @default(true) @map("is_active")
+  isVerified    Boolean   @default(false) @map("is_verified")
+  isBlocked     Boolean   @default(false) @map("is_blocked")
+  blockReason   String?   @map("block_reason") @db.Text
+  lastLoginAt   DateTime? @map("last_login_at")
+  loginAttempts Int       @default(0) @map("login_attempts")
+  lockedUntil   DateTime? @map("locked_until")
+
+  // Marketing y referidos
+  referralCode        String? @unique @map("referral_code") @db.VarChar(20)
+  referredBy          String? @map("referred_by") @db.VarChar(20)
+  onboardingCompleted Boolean @default(false) @map("onboarding_completed")
+  privacyAccepted     Boolean @default(false) @map("privacy_accepted")
+  termsAccepted       Boolean @default(false) @map("terms_accepted")
+  marketingAccepted   Boolean @default(false) @map("marketing_accepted")
+
+  // Configuración de localización
+  preferredLanguage String @default("es") @map("preferred_language") @db.VarChar(5)
+  preferredCurrency String @default("EUR") @map("preferred_currency") @db.VarChar(3)
+  timezone          String @default("Europe/Madrid") @db.VarChar(50)
+
+  // Timestamps
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relaciones (definidas en otros módulos)
+  primaryClinic       Clinic               @relation(fields: [primaryClinicId], references: [id])
+  appointments        Appointment[]
+  vipSubscriptions    VipSubscription[]
+  invitations         Invitation[]
+  passwordResetTokens PasswordResetToken[]
+  rewardRedemptions   RewardRedemption[]
+  stripeCustomer      StripeCustomer?
+  paymentMethods      PaymentMethod[]
+  payments            Payment[]
+  notificationLogs    NotificationLog[]
+  offerRedemptions    OfferRedemption[]
+  userSessions        UserSession[]
+  patientConsents     PatientConsent[]
+  consentHistory      ConsentHistory[]
+  appointmentReviews  AppointmentReview[] @relation("UserAppointmentReviews")
+
+  @@index([primaryClinicId, isActive], map: "idx_user_clinic")
+  @@index([email], map: "idx_user_email")
+  @@index([loyaltyTier, vipStatus], map: "idx_user_loyalty")
+  @@index([referralCode], map: "idx_user_referral")
+  @@index([role, isActive], map: "idx_user_role")
+  @@index([beautyPoints], map: "idx_user_points")
+  @@map("users")
+}
+
+// ============================================================================
+// 👨‍⚕️ MODELO PROFESSIONAL - ESPECIALISTA CON AUTENTICACIÓN COMPLETA
+// ============================================================================
+
+/// Profesional que realiza tratamientos estéticos
+/// Incluye autenticación independiente y métricas de performance
+model Professional {
+  /// Identificador único del profesional
+  id       String @id @default(cuid())
+  clinicId String @map("clinic_id")
+
+  // Autenticación independiente
+  email        String   @unique @db.VarChar(100)
+  passwordHash String   @map("password_hash") @db.VarChar(255)
+  role         UserRole @default(PROFESSIONAL)
+
+  // Datos personales
+  firstName String    @map("first_name") @db.VarChar(50)
+  lastName  String    @map("last_name") @db.VarChar(50)
+  phone     String?   @db.VarChar(20)
+  avatarUrl String?   @map("avatar_url") @db.Text
+  birthDate DateTime? @map("birth_date") @db.Date
+
+  // Datos profesionales y certificaciones
+  licenseNumber  String? @map("license_number") @db.VarChar(50)
+  specialties    String  @db.Text // JSON array de especialidades
+  certifications String? @db.Text // JSON array de certificaciones
+  experience     Int?    // Años de experiencia
+  bio            String? @db.Text
+  languages      String? @db.Text // JSON array de idiomas
+  education      String? @db.Text // JSON formación académica
+
+  // Configuración laboral
+  employmentType String  @default("FULL_TIME") @map("employment_type") @db.VarChar(20)
+  hourlyRate     Decimal? @map("hourly_rate") @db.Decimal(8,2)
+  commissionRate Decimal? @map("commission_rate") @db.Decimal(5,2)
+  availableHours String? @map("available_hours") @db.Text // JSON
+  workingDays    String? @map("working_days") @db.Text // JSON
+
+  // ✅ MÉTRICAS DE PERFORMANCE PROFESIONAL
+  rating              Decimal @default(5.0) @db.Decimal(3,2)
+  totalAppointments   Int     @default(0) @map("total_appointments")
+  totalRevenue        Decimal @default(0) @map("total_revenue") @db.Decimal(10,2)
+  patientSatisfaction Decimal @default(5.0) @map("patient_satisfaction") @db.Decimal(3,2)
+  onTimePercentage    Decimal @default(100) @map("on_time_percentage") @db.Decimal(5,2)
+  cancellationRate    Decimal @default(0) @map("cancellation_rate") @db.Decimal(5,2)
+
+  // Sistema de permisos granular
+  permissions         String  @default("[]") @db.Text // JSON array
+  canManageSchedule   Boolean @default(true) @map("can_manage_schedule")
+  canViewReports      Boolean @default(false) @map("can_view_reports")
+  canManagePatients   Boolean @default(false) @map("can_manage_patients")
+  canManageTreatments Boolean @default(false) @map("can_manage_treatments")
+  canProcessPayments  Boolean @default(false) @map("can_process_payments")
+
+  // Estados de activación y verificación
+  isActive            Boolean   @default(true) @map("is_active")
+  isVerified          Boolean   @default(false) @map("is_verified")
+  onboardingCompleted Boolean   @default(false) @map("onboarding_completed")
+  lastLoginAt         DateTime? @map("last_login_at")
+  emailVerified       Boolean   @default(false) @map("email_verified")
+
+  // Configuración personal
+  notificationSettings String? @map("notification_settings") @db.Text // JSON
+  workPreferences      String? @map("work_preferences") @db.Text // JSON
+
+  // Timestamps
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relaciones (definidas en otros módulos)
+  clinic              Clinic                      @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  appointments        Appointment[]
+  passwordResetTokens ProfessionalPasswordReset[]
+  userSessions        UserSession[]
+  appointmentReviews  AppointmentReview[] @relation("ProfessionalAppointmentReviews")
+
+  @@index([clinicId, isActive], map: "idx_professional_clinic")
+  @@index([email], map: "idx_professional_email")
+  @@index([role, clinicId], map: "idx_professional_role")
+  @@index([rating, totalAppointments], map: "idx_professional_performance")
+  @@map("professionals")
+}
+
+// ============================================================================
+// 🔑 MODELO USER SESSIONS - GESTIÓN DE SESIONES SEGURAS
+// ============================================================================
+
+/// Gestión de sesiones para usuarios y profesionales
+/// Incluye tracking de dispositivos y seguridad avanzada
+model UserSession {
+  /// Identificador único de la sesión
+  id             String  @id @default(cuid())
+  userId         String? @map("user_id")
+  professionalId String? @map("professional_id")
+  sessionType    String  @map("session_type") @db.VarChar(20) // USER, PROFESSIONAL
+
+  // Tokens de autenticación
+  token        String   @unique @db.VarChar(255)
+  refreshToken String?  @map("refresh_token") @db.VarChar(255)
+  expiresAt    DateTime @map("expires_at")
+
+  // Información del dispositivo para seguridad
+  deviceId   String? @map("device_id") @db.VarChar(100)
+  deviceType String? @map("device_type") @db.VarChar(20)
+  deviceName String? @map("device_name") @db.VarChar(100)
+  platform   String? @db.VarChar(20) // ios, android, web
+  appVersion String? @map("app_version") @db.VarChar(20)
+
+  // Información de red y geolocalización
+  ipAddress String? @map("ip_address") @db.VarChar(45)
+  userAgent String? @map("user_agent") @db.Text
+  location  String? @db.Text // JSON con geolocalización
+  country   String? @db.VarChar(2)
+  city      String? @db.VarChar(50)
+
+  // Estados de la sesión
+  isActive  Boolean @default(true) @map("is_active")
+  isRevoked Boolean @default(false) @map("is_revoked")
+
+  // Actividad y revocación
+  lastActivity  DateTime  @default(now()) @map("last_activity")
+  revokedAt     DateTime? @map("revoked_at")
+  revokedReason String?   @map("revoked_reason") @db.Text
+
+  // Configuración de seguridad
+  loginMethod         String  @default("PASSWORD") @map("login_method") @db.VarChar(20)
+  twoFactorEnabled    Boolean @default(false) @map("two_factor_enabled")
+  suspiciousActivity  Boolean @default(false) @map("suspicious_activity")
+
+  // Timestamps
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relaciones
+  user         User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  professional Professional? @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+
+  @@index([token], map: "idx_session_token")
+  @@index([userId, isActive], map: "idx_user_sessions")
+  @@index([professionalId, isActive], map: "idx_professional_sessions")
+  @@index([expiresAt], map: "idx_session_expiry")
+  @@index([ipAddress], map: "idx_session_ip")
+  @@map("user_sessions")
+}
+
+// ============================================================================
+// 🔓 TOKENS DE RESET PARA USUARIOS
+// ============================================================================
+
+/// Tokens de recuperación de contraseña para usuarios
+/// Incluye metadata de seguridad y tracking de uso
+model PasswordResetToken {
+  /// Identificador único del token
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  
+  // Token y expiración
+  token     String   @unique @db.VarChar(255)
+  expiresAt DateTime @map("expires_at")
+  
+  // Control de uso
+  used      Boolean   @default(false)
+  usedAt    DateTime? @map("used_at")
+  
+  // Metadata de seguridad
+  ipAddress String?  @map("ip_address") @db.VarChar(45)
+  userAgent String?  @map("user_agent") @db.Text
+  
+  // Timestamp
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relaciones
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token], map: "idx_reset_token")
+  @@index([expiresAt], map: "idx_reset_expiry")
+  @@map("password_reset_tokens")
+}
+
+// ============================================================================
+// 🔓 TOKENS DE RESET PARA PROFESIONALES
+// ============================================================================
+
+/// Tokens de recuperación de contraseña para profesionales
+/// Sistema independiente para mayor seguridad
+model ProfessionalPasswordReset {
+  /// Identificador único del token
+  id             String   @id @default(cuid())
+  professionalId String   @map("professional_id")
+  
+  // Token y expiración
+  token          String   @unique @db.VarChar(255)
+  expiresAt      DateTime @map("expires_at")
+  
+  // Control de uso
+  used           Boolean   @default(false)
+  usedAt         DateTime? @map("used_at")
+  
+  // Metadata de seguridad
+  ipAddress      String?  @map("ip_address") @db.VarChar(45)
+  userAgent      String?  @map("user_agent") @db.Text
+  
+  // Timestamp
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  // Relaciones
+  professional Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+
+  @@index([token], map: "idx_prof_reset_token")
+  @@index([expiresAt], map: "idx_prof_reset_expiry")
+  @@map("professional_password_resets")
+}
+
+// ============================================================================
+// 🔚 FIN DEL MÓDULO DE AUTENTICACIÓN
+// ============================================================================
+// Total de modelos: 5
+// Líneas: ~280
+// Funcionalidad: Autenticación completa, sesiones y recuperación de contraseñas
+// ============================================================================

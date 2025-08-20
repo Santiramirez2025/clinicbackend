@@ -1,0 +1,313 @@
+// ============================================================================
+// 💉 DOMINIO: MÉDICO - TRATAMIENTOS Y COMPLIANCE LEGAL
+// ============================================================================
+// Modelos incluidos: Treatment, ConsentFormTemplate, PatientConsent, ConsentHistory
+// Dependencias: 01-base.prisma (enums), 02-auth.prisma (User), 03-clinic.prisma (Clinic)
+// Última actualización: 2025-08-20
+// ============================================================================
+
+// ============================================================================
+// 💊 MODELO TREATMENT - TRATAMIENTO CON COMPLIANCE LEGAL COMPLETO
+// ============================================================================
+
+/// Tratamiento estético con clasificación legal y configuración de riesgos
+/// Incluye toda la información necesaria para compliance sanitario
+model Treatment {
+  /// Identificador único del tratamiento
+  id       String @id @default(cuid())
+  clinicId String @map("clinic_id")
+
+  // Información básica del tratamiento
+  name             String @db.VarChar(100)
+  description      String @db.Text
+  shortDescription String? @map("short_description") @db.VarChar(200)
+  category         String @db.VarChar(50)
+  subcategory      String? @db.VarChar(50)
+
+  // ✅ CLASIFICACIÓN LEGAL SEGÚN NORMATIVA ESPAÑOLA
+  riskLevel                TreatmentRiskLevel @default(LOW) @map("risk_level")
+  requiresConsultation     Boolean            @default(false) @map("requires_consultation")
+  requiresMedicalStaff     Boolean            @default(false) @map("requires_medical_staff")
+  consentType              ConsentType        @default(SIMPLE) @map("consent_type")
+  regulatoryCategory       String?            @map("regulatory_category") @db.VarChar(50)
+  
+  // ✅ INFORMACIÓN MÉDICA LEGAL OBLIGATORIA
+  minimumAge               Int?               @map("minimum_age")
+  maximumAge               Int?               @map("maximum_age")
+  contraindications        String?            @db.Text // JSON array de contraindicaciones
+  sideEffects              String?            @map("side_effects") @db.Text // JSON array
+  recoveryTime             String?            @map("recovery_time") @db.VarChar(50)
+  followUpRequired         Boolean            @default(false) @map("follow_up_required")
+  followUpDays             Int?               @map("follow_up_days")
+  
+  // ✅ CONSENTIMIENTO INFORMADO CONFIGURACIÓN
+  consentFormRequired      Boolean            @default(false) @map("consent_form_required")
+  consentFormTemplateId    String?            @map("consent_form_template_id")
+  digitalSignatureRequired Boolean            @default(false) @map("digital_signature_required")
+  
+  // ✅ CONFIGURACIÓN DE RESERVA SEGÚN RIESGO
+  appointmentType          AppointmentType    @default(DIRECT) @map("appointment_type")
+  consultationDuration     Int?               @map("consultation_duration")
+  allowSameDayConsultation Boolean            @default(true) @map("allow_same_day_consultation")
+  
+  // ✅ PROFESIONALES AUTORIZADOS
+  authorizedProfessionalTypes String?         @map("authorized_professional_types") @db.Text // JSON
+  requiresSpecialization   Boolean            @default(false) @map("requires_specialization")
+  requiredCertifications   String?            @map("required_certifications") @db.Text // JSON
+
+  // Configuración de duración y precios
+  durationMinutes Int     @map("duration_minutes")
+  price           Decimal @db.Decimal(8,2)
+  vipPrice        Decimal? @map("vip_price") @db.Decimal(8,2)
+  preparationTime Int     @default(0) @map("preparation_time")
+  cleanupTime     Int     @default(0) @map("cleanup_time")
+
+  // Configuración visual y marketing
+  iconName String  @map("icon_name") @db.VarChar(50)
+  color    String? @db.VarChar(7) // Hex color
+  imageUrl String? @map("image_url") @db.Text
+  gallery  String? @db.Text // JSON array de URLs
+
+  // Configuración de negocio
+  isVipExclusive       Boolean @default(false) @map("is_vip_exclusive")
+  maxSessionsPerMonth  Int?    @map("max_sessions_per_month")
+  beautyPointsEarned   Int     @default(10) @map("beauty_points_earned")
+  commissionRate       Decimal? @map("commission_rate") @db.Decimal(5,2)
+
+  // Estados operativos
+  isActive   Boolean @default(true) @map("is_active")
+  isFeatured Boolean @default(false) @map("is_featured")
+  isPopular  Boolean @default(false) @map("is_popular")
+  isNew      Boolean @default(false) @map("is_new")
+  isArchived Boolean @default(false) @map("is_archived")
+
+  // SEO y marketing
+  tags           String? @db.Text // JSON array
+  seoTitle       String? @map("seo_title") @db.VarChar(200)
+  seoDescription String? @map("seo_description") @db.Text
+  sortOrder      Int     @default(0) @map("sort_order")
+
+  // Analytics de performance
+  totalBookings  Int @default(0) @map("total_bookings")
+  avgRating      Decimal? @map("avg_rating") @db.Decimal(3,2)
+  viewCount      Int @default(0) @map("view_count")
+
+  // Timestamps
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relaciones
+  clinic               Clinic               @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  appointments         Appointment[]
+  consentFormTemplate  ConsentFormTemplate? @relation(fields: [consentFormTemplateId], references: [id])
+  patientConsents      PatientConsent[]
+  appointmentReviews   AppointmentReview[] @relation("TreatmentAppointmentReviews")
+
+  @@index([clinicId, isActive], map: "idx_treatment_clinic")
+  @@index([category, isActive], map: "idx_treatment_category")
+  @@index([riskLevel, requiresConsultation], map: "idx_treatment_legal")
+  @@index([isVipExclusive, isFeatured], map: "idx_treatment_special")
+  @@index([price, isActive], map: "idx_treatment_price")
+  @@index([appointmentType], map: "idx_treatment_appointment_type")
+  @@map("treatments")
+}
+
+// ============================================================================
+// 📋 MODELO CONSENT FORM TEMPLATE - PLANTILLAS DE CONSENTIMIENTO
+// ============================================================================
+
+/// Plantilla de formulario de consentimiento para compliance legal
+/// Versionado y configurable por tipo de tratamiento
+model ConsentFormTemplate {
+  /// Identificador único de la plantilla
+  id       String @id @default(cuid())
+  clinicId String @map("clinic_id")
+
+  // Información básica de la plantilla
+  name        String @db.VarChar(100)
+  description String? @db.Text
+  version     String @default("1.0") @db.VarChar(10)
+  language    String @default("es") @db.VarChar(5)
+
+  // Contenido del formulario legal
+  title       String @db.VarChar(200)
+  content     String @db.Text // HTML del formulario
+  fields      String @db.Text // JSON con campos requeridos
+  
+  // Configuración legal específica
+  isActive    Boolean @default(true) @map("is_active")
+  isMandatory Boolean @default(false) @map("is_mandatory")
+  
+  // Tipo de consentimiento según normativa
+  consentType ConsentType @map("consent_type")
+  
+  // Período de validez legal
+  validFrom   DateTime @map("valid_from")
+  validUntil  DateTime? @map("valid_until")
+
+  // Configuración adicional de compliance
+  requiresWitness       Boolean @default(false) @map("requires_witness")
+  requiresParentConsent Boolean @default(false) @map("requires_parent_consent")
+  minimumAge            Int?    @map("minimum_age")
+  
+  // Configuración de almacenamiento GDPR
+  dataRetentionPeriod   Int?    @map("data_retention_period") // días
+  allowsDataProcessing  Boolean @default(true) @map("allows_data_processing")
+
+  // Timestamps
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relaciones
+  clinic      Clinic          @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  treatments  Treatment[]
+  consents    PatientConsent[]
+
+  @@index([clinicId, isActive], map: "idx_consent_template_clinic")
+  @@index([consentType], map: "idx_consent_template_type")
+  @@index([validFrom, validUntil], map: "idx_consent_template_validity")
+  @@index([version], map: "idx_consent_template_version")
+  @@map("consent_form_templates")
+}
+
+// ============================================================================
+// ✍️ MODELO PATIENT CONSENT - CONSENTIMIENTOS DE PACIENTES
+// ============================================================================
+
+/// Consentimiento específico de un paciente para un tratamiento
+/// Incluye firma digital y validación médica
+model PatientConsent {
+  /// Identificador único del consentimiento
+  id          String @id @default(cuid())
+  userId      String @map("user_id")
+  treatmentId String? @map("treatment_id")
+  templateId  String @map("template_id")
+  
+  // ✅ INFORMACIÓN DE CONSENTIMIENTO LEGAL
+  isConsented      Boolean   @default(false) @map("is_consented")
+  consentedAt      DateTime? @map("consented_at")
+  digitalSignature String?   @map("digital_signature") @db.Text
+  ipAddress        String?   @map("ip_address") @db.VarChar(45)
+  userAgent        String?   @map("user_agent") @db.Text
+  
+  // ✅ DATOS DEL FORMULARIO COMPLETADO
+  formData         String?   @db.Text // JSON con respuestas del paciente
+  
+  // ✅ INFORMACIÓN MÉDICA RELEVANTE ESPECÍFICA
+  allergies        String?   @db.Text // JSON array de alergias
+  medications      String?   @db.Text // JSON array de medicamentos
+  medicalHistory   String?   @map("medical_history") @db.Text
+  previousTreatments String? @map("previous_treatments") @db.Text // JSON
+  
+  // ✅ VALIDACIÓN MÉDICA PROFESIONAL
+  reviewedBy       String?   @map("reviewed_by") // Professional ID
+  reviewedAt       DateTime? @map("reviewed_at")
+  medicalApproval  Boolean?  @map("medical_approval")
+  approvalNotes    String?   @map("approval_notes") @db.Text
+  
+  // Estados del consentimiento
+  status           String    @default("PENDING") @db.VarChar(20)
+  
+  // Validez temporal del consentimiento
+  expiresAt        DateTime? @map("expires_at")
+  
+  // ✅ TESTIGO (SI ES REQUERIDO POR LEY)
+  witnessName      String?   @map("witness_name") @db.VarChar(100)
+  witnessSignature String?   @map("witness_signature") @db.Text
+  witnessId        String?   @map("witness_id") // Professional ID del testigo
+  
+  // ✅ INFORMACIÓN PARENTAL (MENORES DE EDAD)
+  parentName       String?   @map("parent_name") @db.VarChar(100)
+  parentSignature  String?   @map("parent_signature") @db.Text
+  parentRelation   String?   @map("parent_relation") @db.VarChar(50)
+  parentId         String?   @map("parent_id") @db.VarChar(20) // DNI/NIE
+
+  // Timestamps
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relaciones
+  user      User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  treatment Treatment?           @relation(fields: [treatmentId], references: [id])
+  template  ConsentFormTemplate @relation(fields: [templateId], references: [id])
+
+  @@index([userId, status], map: "idx_patient_consent_user")
+  @@index([treatmentId], map: "idx_patient_consent_treatment")
+  @@index([status, expiresAt], map: "idx_patient_consent_validity")
+  @@index([reviewedBy], map: "idx_patient_consent_reviewer")
+  @@map("patient_consents")
+}
+
+// ============================================================================
+// 📜 MODELO CONSENT HISTORY - HISTORIAL DE CONSENTIMIENTOS PARA AUDIT
+// ============================================================================
+
+/// Historial completo de consentimientos para trazabilidad legal
+/// Registro inmutable para auditorías y compliance GDPR
+model ConsentHistory {
+  /// Identificador único del registro histórico
+  id             String   @id @default(cuid())
+  userId         String   @map("user_id")
+  consentType    String   @map("consent_type") @db.VarChar(50)
+  version        String   @default("1.0") @db.VarChar(10)
+  
+  // ✅ ESTADO DEL CONSENTIMIENTO EN EL MOMENTO
+  isConsented    Boolean  @map("is_consented")
+  consentedAt    DateTime @map("consented_at")
+  revokedAt      DateTime? @map("revoked_at")
+  
+  // ✅ METADATA DE TRAZABILIDAD LEGAL
+  ipAddress      String?  @map("ip_address") @db.VarChar(45)
+  userAgent      String?  @map("user_agent") @db.Text
+  method         String   @default("DIGITAL") @db.VarChar(20) // DIGITAL, PAPER, VERBAL
+  
+  // ✅ EVIDENCIA LEGAL
+  digitalSignature String? @map("digital_signature") @db.Text
+  witnessId        String? @map("witness_id")
+  notes            String? @db.Text
+  
+  // ✅ CONTEXTO LEGAL ADICIONAL
+  legalBasis       String? @map("legal_basis") @db.VarChar(100) // Base legal GDPR
+  processingPurpose String? @map("processing_purpose") @db.Text
+  dataCategories   String? @map("data_categories") @db.Text // JSON
+  
+  // Timestamp inmutable
+  createdAt DateTime @default(now()) @map("created_at")
+  
+  // Relación
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([userId, consentType], map: "idx_consent_history_user")
+  @@index([consentedAt], map: "idx_consent_history_date")
+  @@index([legalBasis], map: "idx_consent_history_legal")
+  @@map("consent_history")
+}
+
+// ============================================================================
+// 📊 ÍNDICES ESTRATÉGICOS PARA COMPLIANCE Y PERFORMANCE
+// ============================================================================
+// Índices específicos para queries de compliance médico:
+//
+// 1. Búsquedas por riesgo legal:
+//    - idx_treatment_legal: Para filtrar por nivel de riesgo y consulta
+//
+// 2. Gestión de consentimientos:
+//    - idx_consent_template_validity: Para plantillas vigentes
+//    - idx_patient_consent_validity: Para consentimientos válidos
+//
+// 3. Auditoría y trazabilidad:
+//    - idx_consent_history_date: Para reportes temporales
+//    - idx_consent_history_legal: Para compliance GDPR
+//
+// 4. Configuración por tipo de tratamiento:
+//    - idx_treatment_appointment_type: Para flujos de reserva
+//
+// ============================================================================
+
+// ============================================================================
+// 🔚 FIN DEL MÓDULO MÉDICO
+// ============================================================================
+// Total de modelos: 4
+// Líneas: ~290
+// Funcionalidad: Tratamientos con compliance legal completo y consentimientos
+// ============================================================================

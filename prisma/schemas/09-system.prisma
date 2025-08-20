@@ -1,0 +1,333 @@
+// ============================================================================
+// 📊 DOMINIO: SISTEMA - ANALYTICS, AUDIT Y CONFIGURACIÓN
+// ============================================================================
+// Modelos incluidos: AuditLog, AnalyticsEvent, BusinessMetric, SystemConfig, FeatureFlag
+// Dependencias: 02-auth.prisma (User, Professional), 03-clinic.prisma (Clinic)
+// Última actualización: 2025-08-20
+// ============================================================================
+
+// ============================================================================
+// 🛡️ MODELO AUDIT LOG - TRAZABILIDAD COMPLETA
+// ============================================================================
+
+/// Registro de auditoría para compliance y seguridad
+/// Trazabilidad completa de todas las acciones críticas del sistema
+model AuditLog {
+  /// Identificador único del log
+  id String @id @default(cuid())
+
+  // ✅ ACTOR QUE REALIZÓ LA ACCIÓN
+  userId         String? @map("user_id")
+  professionalId String? @map("professional_id")
+  clinicId       String? @map("clinic_id")
+  actorType      String  @map("actor_type") @db.VarChar(20) // USER, PROFESSIONAL, SYSTEM
+  actorEmail     String? @map("actor_email") @db.VarChar(100)
+
+  // ✅ ACCIÓN REALIZADA
+  action     String @db.VarChar(50) // CREATE, UPDATE, DELETE, LOGIN, EXPORT
+  resource   String @db.VarChar(50) // USER, APPOINTMENT, PAYMENT, TREATMENT
+  resourceId String? @map("resource_id") @db.VarChar(50)
+
+  // ✅ DETALLES DE LA ACCIÓN
+  description String? @db.Text
+  changes     String? @db.Text // JSON con cambios específicos
+  oldValues   String? @map("old_values") @db.Text // JSON valores anteriores
+  newValues   String? @map("new_values") @db.Text // JSON valores nuevos
+
+  // ✅ CONTEXTO TÉCNICO
+  ipAddress String? @map("ip_address") @db.VarChar(45)
+  userAgent String? @map("user_agent") @db.Text
+  platform  String? @db.VarChar(20)
+  sessionId String? @map("session_id") @db.VarChar(50)
+
+  // ✅ METADATA CONTEXTUAL
+  severity String  @default("INFO") @db.VarChar(10) // DEBUG, INFO, WARN, ERROR, CRITICAL
+  category String? @db.VarChar(30) // SECURITY, BUSINESS, SYSTEM, GDPR
+  tags     String? @db.Text // JSON array de tags para filtrado
+
+  // ✅ COMPLIANCE Y LEGAL
+  gdprRelevant    Boolean @default(false) @map("gdpr_relevant")
+  retentionPolicy String? @map("retention_policy") @db.VarChar(20)
+  
+  // ✅ INFORMACIÓN ADICIONAL DE SEGURIDAD
+  riskLevel       String? @map("risk_level") @db.VarChar(10) // LOW, MEDIUM, HIGH
+  requiresReview  Boolean @default(false) @map("requires_review")
+  reviewedBy      String? @map("reviewed_by")
+  reviewedAt      DateTime? @map("reviewed_at")
+
+  // Timestamp inmutable
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // ✅ ÍNDICES PARA QUERIES DE AUDITORÍA
+  @@index([userId, action], map: "idx_audit_user_action")
+  @@index([professionalId, action], map: "idx_audit_professional_action")
+  @@index([clinicId, action], map: "idx_audit_clinic_action")
+  @@index([resource, resourceId], map: "idx_audit_resource")
+  @@index([createdAt], map: "idx_audit_date")
+  @@index([severity, category], map: "idx_audit_severity")
+  @@index([gdprRelevant], map: "idx_audit_gdpr")
+  @@index([riskLevel, requiresReview], map: "idx_audit_security")
+  @@map("audit_logs")
+}
+
+// ============================================================================
+// 📈 MODELO ANALYTICS EVENT - EVENTOS DE USUARIO
+// ============================================================================
+
+/// Evento de analytics para tracking de comportamiento
+/// Sistema completo de analytics con contexto enriquecido
+model AnalyticsEvent {
+  /// Identificador único del evento
+  id       String @id @default(cuid())
+  userId   String? @map("user_id")
+  clinicId String? @map("clinic_id")
+  sessionId String? @map("session_id") @db.VarChar(50)
+
+  // ✅ INFORMACIÓN DEL EVENTO
+  eventName String @map("event_name") @db.VarChar(50)
+  eventType String @map("event_type") @db.VarChar(30) // USER_ACTION, SYSTEM_EVENT, BUSINESS
+  category  String? @db.VarChar(30)
+
+  // ✅ PROPIEDADES DEL EVENTO
+  properties String? @db.Text // JSON con propiedades específicas
+  value      Decimal? @db.Decimal(10,2) // Valor monetario si aplica
+  
+  // ✅ CONTEXTO DEL USUARIO
+  userType      String? @map("user_type") @db.VarChar(20)
+  loyaltyTier   String? @map("loyalty_tier") @db.VarChar(20)
+  isVip         Boolean? @map("is_vip")
+  userSegment   String? @map("user_segment") @db.VarChar(30)
+
+  // ✅ CONTEXTO TÉCNICO
+  platform      String? @db.VarChar(20)
+  deviceType    String? @map("device_type") @db.VarChar(20)
+  appVersion    String? @map("app_version") @db.VarChar(20)
+  screenName    String? @map("screen_name") @db.VarChar(50)
+
+  // ✅ CONTEXTO TEMPORAL
+  dayOfWeek     Int? @map("day_of_week") // 1-7
+  hourOfDay     Int? @map("hour_of_day") // 0-23
+  isWeekend     Boolean? @map("is_weekend")
+  timeZone      String? @map("time_zone") @db.VarChar(50)
+
+  // ✅ GEOLOCALIZACIÓN
+  country       String? @db.VarChar(2)
+  city          String? @db.VarChar(50)
+  ipAddress     String? @map("ip_address") @db.VarChar(45)
+
+  // ✅ CONTEXTO DE NEGOCIO
+  funnel        String? @db.VarChar(30) // ACQUISITION, ACTIVATION, RETENTION
+  touchpoint    String? @db.VarChar(30) // APP, EMAIL, SMS, WEB
+  campaign      String? @db.VarChar(50)
+  source        String? @db.VarChar(30)
+  medium        String? @db.VarChar(30)
+
+  // Timestamp
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId, eventName], map: "idx_analytics_user_event")
+  @@index([clinicId, eventName], map: "idx_analytics_clinic_event")
+  @@index([eventName, createdAt], map: "idx_analytics_event_time")
+  @@index([createdAt], map: "idx_analytics_date")
+  @@index([userSegment, eventType], map: "idx_analytics_segment")
+  @@index([funnel, touchpoint], map: "idx_analytics_funnel")
+  @@map("analytics_events")
+}
+
+// ============================================================================
+// 📊 MODELO BUSINESS METRICS - MÉTRICAS DE NEGOCIO
+// ============================================================================
+
+/// Métricas agregadas de negocio para reporting ejecutivo
+/// KPIs consolidados por período para análisis de tendencias
+model BusinessMetric {
+  /// Identificador único de la métrica
+  id       String @id @default(cuid())
+  clinicId String @map("clinic_id")
+  
+  // ✅ PERÍODO DE MEDICIÓN
+  metricDate   DateTime @map("metric_date") @db.Date
+  metricPeriod String   @map("metric_period") @db.VarChar(10) // DAILY, WEEKLY, MONTHLY
+  
+  // ✅ MÉTRICAS DE CITAS
+  totalAppointments     Int @default(0) @map("total_appointments")
+  completedAppointments Int @default(0) @map("completed_appointments")
+  cancelledAppointments Int @default(0) @map("cancelled_appointments")
+  noShowAppointments    Int @default(0) @map("no_show_appointments")
+  
+  // ✅ MÉTRICAS DE REVENUE
+  totalRevenue      Decimal @default(0) @map("total_revenue") @db.Decimal(10,2)
+  vipRevenue        Decimal @default(0) @map("vip_revenue") @db.Decimal(10,2)
+  avgRevenuePerUser Decimal @default(0) @map("avg_revenue_per_user") @db.Decimal(8,2)
+  avgOrderValue     Decimal @default(0) @map("avg_order_value") @db.Decimal(8,2)
+  
+  // ✅ MÉTRICAS DE USUARIOS
+  newUsers       Int @default(0) @map("new_users")
+  activeUsers    Int @default(0) @map("active_users")
+  returningUsers Int @default(0) @map("returning_users")
+  churnedUsers   Int @default(0) @map("churned_users")
+  
+  // ✅ MÉTRICAS DE CONVERSIÓN
+  signupConversion   Decimal @default(0) @map("signup_conversion") @db.Decimal(5,4)
+  bookingConversion  Decimal @default(0) @map("booking_conversion") @db.Decimal(5,4)
+  vipConversion      Decimal @default(0) @map("vip_conversion") @db.Decimal(5,4)
+  retentionRate      Decimal @default(0) @map("retention_rate") @db.Decimal(5,4)
+  
+  // ✅ MÉTRICAS DE SATISFACCIÓN
+  avgRating          Decimal? @map("avg_rating") @db.Decimal(3,2)
+  npsScore           Decimal? @map("nps_score") @db.Decimal(5,2)
+  reviewCount        Int @default(0) @map("review_count")
+  satisfactionScore  Decimal? @map("satisfaction_score") @db.Decimal(3,2)
+  
+  // ✅ MÉTRICAS OPERACIONALES
+  utilizationRate    Decimal @default(0) @map("utilization_rate") @db.Decimal(5,4)
+  punctualityRate    Decimal @default(0) @map("punctuality_rate") @db.Decimal(5,4)
+  professionalEfficiency Decimal @default(0) @map("professional_efficiency") @db.Decimal(5,4)
+  
+  // ✅ MÉTRICAS DE MARKETING
+  acquisitionCost    Decimal @default(0) @map("acquisition_cost") @db.Decimal(8,2)
+  marketingROI       Decimal @default(0) @map("marketing_roi") @db.Decimal(8,4)
+  referralRate       Decimal @default(0) @map("referral_rate") @db.Decimal(5,4)
+  
+  // Timestamps
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  
+  @@unique([clinicId, metricDate, metricPeriod], map: "unique_clinic_metric_period")
+  @@index([clinicId, metricPeriod], map: "idx_clinic_metrics")
+  @@index([metricDate], map: "idx_metric_date")
+  @@index([metricPeriod, metricDate], map: "idx_metric_period_date")
+  @@map("business_metrics")
+}
+
+// ============================================================================
+// 🔧 MODELO SYSTEM CONFIG - CONFIGURACIÓN DEL SISTEMA
+// ============================================================================
+
+/// Configuración global del sistema con validación
+/// Permite configurar comportamientos sin deployments
+model SystemConfig {
+  /// Identificador único de la configuración
+  id    String @id @default(cuid())
+  key   String @unique @db.VarChar(100)
+  value String @db.Text
+  type  String @db.VarChar(20) // STRING, NUMBER, BOOLEAN, JSON
+  
+  // ✅ METADATA DESCRIPTIVA
+  description String? @db.Text
+  category    String? @db.VarChar(30)
+  isPublic    Boolean @default(false) @map("is_public")
+  isEditable  Boolean @default(true) @map("is_editable")
+  
+  // ✅ VALIDACIÓN Y CONSTRAINTS
+  validationRules String? @map("validation_rules") @db.Text // JSON
+  defaultValue    String? @map("default_value") @db.Text
+  allowedValues   String? @map("allowed_values") @db.Text // JSON array
+  
+  // ✅ CONFIGURACIÓN DE ENTORNO
+  environment     String @default("production") @db.VarChar(20)
+  requiresRestart Boolean @default(false) @map("requires_restart")
+  
+  // ✅ AUDIT Y TRACKING
+  lastModifiedBy  String? @map("last_modified_by")
+  changeReason    String? @map("change_reason") @db.Text
+  
+  // Timestamps
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  
+  @@index([category], map: "idx_config_category")
+  @@index([isPublic], map: "idx_config_public")
+  @@index([environment], map: "idx_config_environment")
+  @@map("system_configs")
+}
+
+// ============================================================================
+// 🚩 MODELO FEATURE FLAG - CONTROL DE FEATURES
+// ============================================================================
+
+/// Sistema de feature flags para releases graduales
+/// Control granular de funcionalidades por segmento de usuarios
+model FeatureFlag {
+  /// Identificador único del feature flag
+  id          String @id @default(cuid())
+  name        String @unique @db.VarChar(100)
+  description String? @db.Text
+  
+  // ✅ ESTADO Y CONFIGURACIÓN
+  isEnabled   Boolean @default(false) @map("is_enabled")
+  environment String  @default("production") @db.VarChar(20)
+  
+  // ✅ TARGETING GRANULAR
+  targetUsers    String? @map("target_users") @db.Text // JSON array de user IDs
+  targetClinics  String? @map("target_clinics") @db.Text // JSON array de clinic IDs
+  targetPercent  Int?    @map("target_percent") // % de usuarios
+  targetSegments String? @map("target_segments") @db.Text // JSON array
+  
+  // ✅ CONFIGURACIÓN AVANZADA
+  config      String? @db.Text // JSON con configuración específica
+  constraints String? @db.Text // JSON con constraints
+  rolloutStrategy String? @map("rollout_strategy") @db.VarChar(20) // INSTANT, GRADUAL, CANARY
+  
+  // ✅ VALIDEZ TEMPORAL
+  validFrom   DateTime? @map("valid_from")
+  validUntil  DateTime? @map("valid_until")
+  
+  // ✅ ANALYTICS Y TRACKING
+  usageCount     Int @default(0) @map("usage_count")
+  lastUsedAt     DateTime? @map("last_used_at")
+  conversionRate Decimal? @map("conversion_rate") @db.Decimal(5,4)
+  
+  // ✅ METADATA Y OWNERSHIP
+  owner       String? @db.VarChar(100)
+  team        String? @db.VarChar(50)
+  tags        String? @db.Text // JSON array
+  
+  // Timestamps
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  
+  @@index([isEnabled, environment], map: "idx_feature_flag_enabled")
+  @@index([validFrom, validUntil], map: "idx_feature_flag_validity")
+  @@index([owner, team], map: "idx_feature_flag_ownership")
+  @@map("feature_flags")
+}
+
+// ============================================================================
+// 📊 ÍNDICES ESTRATÉGICOS PARA SISTEMA Y ANALYTICS
+// ============================================================================
+// 
+// 1. AUDITORÍA Y COMPLIANCE:
+//    - idx_audit_gdpr: Para reportes de compliance GDPR
+//    - idx_audit_security: Para eventos de seguridad críticos
+//    - idx_audit_resource: Para trazabilidad por entidad
+//
+// 2. ANALYTICS Y BUSINESS INTELLIGENCE:
+//    - idx_analytics_segment: Para análisis por segmento de usuario
+//    - idx_analytics_funnel: Para análisis de embudo de conversión
+//    - idx_metric_period_date: Para reportes ejecutivos
+//
+// 3. CONFIGURACIÓN Y FEATURE FLAGS:
+//    - idx_config_environment: Para configuraciones por entorno
+//    - idx_feature_flag_enabled: Para evaluación rápida de flags
+//
+// 4. PERFORMANCE CRÍTICA:
+//    - idx_audit_date: Para limpieza de logs antiguos
+//    - idx_analytics_date: Para particionado temporal
+//
+// QUERIES OPTIMIZADAS:
+// - Reportes de auditoría por usuario/acción
+// - Métricas de negocio por período
+// - Evaluación de feature flags
+// - Analytics de comportamiento de usuario
+// - Configuración dinámica del sistema
+//
+// ============================================================================
+
+// ============================================================================
+// 🔚 FIN DEL MÓDULO DE SISTEMA
+// ============================================================================
+// Total de modelos: 5
+// Líneas: ~280
+// Funcionalidad: Analytics completo, auditoría, configuración y feature flags
+// ============================================================================

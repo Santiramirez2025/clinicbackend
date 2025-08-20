@@ -1,0 +1,187 @@
+// ============================================================================
+// 📅 DOMINIO: BOOKING - SISTEMA DE CITAS Y PROGRAMACIÓN
+// ============================================================================
+// Modelos incluidos: Appointment
+// Dependencias: Todos los módulos anteriores (User, Professional, Clinic, Treatment)
+// Última actualización: 2025-08-20
+// ============================================================================
+
+// ============================================================================
+// 📋 MODELO APPOINTMENT - CITA CON COMPLIANCE LEGAL COMPLETO
+// ============================================================================
+
+/// Cita médica/estética con validación legal y seguimiento completo
+/// Incluye todo el flujo desde reserva hasta completion con compliance
+model Appointment {
+  /// Identificador único de la cita
+  id String @id @default(cuid())
+
+  // ✅ REFERENCIAS PRINCIPALES OBLIGATORIAS
+  userId         String @map("user_id")
+  clinicId       String @map("clinic_id")
+  professionalId String @map("professional_id")
+  treatmentId    String @map("treatment_id")
+
+  // ✅ INFORMACIÓN LEGAL Y COMPLIANCE MEJORADA
+  appointmentType      AppointmentType @default(DIRECT) @map("appointment_type")
+  isConsultationOnly   Boolean         @default(false) @map("is_consultation_only")
+  consultationRequired Boolean         @default(false) @map("consultation_required")
+  consentStatus        String?         @map("consent_status") @db.VarChar(20)
+  consentFormId        String?         @map("consent_form_id")
+  
+  // ✅ VALIDACIÓN MÉDICA PROFESIONAL
+  medicalClearance     Boolean?        @map("medical_clearance")
+  clearanceProvidedBy  String?         @map("clearance_provided_by") // Professional ID
+  clearanceNotes       String?         @map("clearance_notes") @db.Text
+  clearanceDate        DateTime?       @map("clearance_date")
+  
+  // ✅ CONTRAINDICACIONES Y VALIDACIONES
+  contraindicationsChecked Boolean?    @map("contraindications_checked")
+  allergiesVerified        Boolean?    @map("allergies_verified")
+  medicationsReviewed      Boolean?    @map("medications_reviewed")
+  riskAssessmentCompleted  Boolean?    @map("risk_assessment_completed")
+
+  // ✅ PROGRAMACIÓN DETALLADA CON TIMEZONE
+  scheduledDate DateTime @map("scheduled_date") @db.Date
+  scheduledTime DateTime @map("scheduled_time")
+  endTime       DateTime @map("end_time")
+  timezone      String   @default("Europe/Madrid") @db.VarChar(50)
+  
+  // ✅ TIEMPOS DE BUFFER Y PREPARACIÓN
+  arrivalTime     DateTime? @map("arrival_time")
+  checkinTime     DateTime? @map("checkin_time")
+  preparationTime Int       @default(0) @map("preparation_time")
+  cleanupTime     Int       @default(0) @map("cleanup_time")
+  
+  // Configuración básica de la cita
+  durationMinutes Int               @map("duration_minutes")
+  status          AppointmentStatus @default(PENDING)
+  priority        String            @default("NORMAL") @db.VarChar(10) // NORMAL, HIGH, URGENT
+
+  // ✅ NOTAS Y COMUNICACIÓN ESTRUCTURADA
+  notes             String? @db.Text
+  professionalNotes String? @map("professional_notes") @db.Text
+  internalNotes     String? @map("internal_notes") @db.Text
+  cancelReason      String? @map("cancel_reason") @db.Text
+  rescheduleReason  String? @map("reschedule_reason") @db.Text
+  
+  // ✅ INFORMACIÓN MÉDICA DE LA CITA
+  patientCondition  String? @map("patient_condition") @db.Text
+  treatmentNotes    String? @map("treatment_notes") @db.Text
+  procedureDetails  String? @map("procedure_details") @db.Text
+  postTreatmentCare String? @map("post_treatment_care") @db.Text
+  
+  // ✅ FACTURACIÓN Y PUNTOS DETALLADOS
+  originalPrice      Decimal @map("original_price") @db.Decimal(8,2)
+  finalPrice         Decimal @map("final_price") @db.Decimal(8,2)
+  discountApplied    Decimal @default(0) @map("discount_applied") @db.Decimal(8,2)
+  taxAmount          Decimal @default(0) @map("tax_amount") @db.Decimal(8,2)
+  beautyPointsEarned Int     @default(0) @map("beauty_points_earned")
+  beautyPointsUsed   Int     @default(0) @map("beauty_points_used")
+  
+  // ✅ DESCUENTOS Y OFERTAS APLICADAS
+  offersApplied      String? @map("offers_applied") @db.Text // JSON array de ofertas
+  promoCode          String? @map("promo_code") @db.VarChar(20)
+  vipDiscountApplied Boolean @default(false) @map("vip_discount_applied")
+  loyaltyDiscountApplied Boolean @default(false) @map("loyalty_discount_applied")
+
+  // ✅ RECORDATORIOS Y NOTIFICACIONES AUTOMÁTICAS
+  reminderSent     Boolean @default(false) @map("reminder_sent")
+  confirmationSent Boolean @default(false) @map("confirmation_sent")
+  followUpSent     Boolean @default(false) @map("follow_up_sent")
+  reviewRequested  Boolean @default(false) @map("review_requested")
+  
+  // ✅ CONFIGURACIÓN DE RECORDATORIOS
+  reminderScheduled   DateTime? @map("reminder_scheduled")
+  followUpScheduled   DateTime? @map("follow_up_scheduled")
+  nextAppointmentSuggested DateTime? @map("next_appointment_suggested")
+
+  // ✅ METADATA DEL BOOKING Y TRACKING
+  bookingSource    String  @default("APP") @map("booking_source") @db.VarChar(20)
+  isFirstVisit     Boolean @default(false) @map("is_first_visit")
+  isRescheduled    Boolean @default(false) @map("is_rescheduled")
+  rescheduleCount  Int     @default(0) @map("reschedule_count")
+  
+  // ✅ INFORMACIÓN DE PAGO DETALLADA
+  paymentStatus    PaymentStatus? @map("payment_status")
+  paymentMethod    String?        @map("payment_method") @db.VarChar(20)
+  paymentId        String?        @map("payment_id")
+  refundAmount     Decimal?       @map("refund_amount") @db.Decimal(8,2)
+  refundReason     String?        @map("refund_reason") @db.Text
+  
+  // ✅ SATISFACCIÓN Y CALIDAD
+  satisfactionScore     Int?      @map("satisfaction_score") // 1-5
+  qualityControlPassed  Boolean?  @map("quality_control_passed")
+  qualityNotes          String?   @map("quality_notes") @db.Text
+  
+  // ✅ SEGUIMIENTO POST-TRATAMIENTO
+  followUpRequired      Boolean   @default(false) @map("follow_up_required")
+  followUpDate          DateTime? @map("follow_up_date")
+  recoveryPeriodDays    Int?      @map("recovery_period_days")
+  specialInstructions   String?   @map("special_instructions") @db.Text
+
+  // ✅ TIMESTAMPS DETALLADOS PARA AUDITORÍA
+  confirmedAt   DateTime? @map("confirmed_at")
+  startedAt     DateTime? @map("started_at")
+  completedAt   DateTime? @map("completed_at")
+  cancelledAt   DateTime? @map("cancelled_at")
+  noShowAt      DateTime? @map("no_show_at")
+  rescheduledAt DateTime? @map("rescheduled_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  // ✅ RELACIONES CON OTROS MÓDULOS
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clinic            Clinic             @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  professional      Professional       @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  treatment         Treatment          @relation(fields: [treatmentId], references: [id], onDelete: Cascade)
+  rewardRedemptions RewardRedemption[]
+  offerRedemptions  OfferRedemption[]
+  appointmentReview AppointmentReview?
+
+  // ✅ ÍNDICES ESTRATÉGICOS PARA PERFORMANCE Y QUERIES FRECUENTES
+  @@index([userId, status], map: "idx_appointment_user_status")
+  @@index([clinicId, scheduledDate], map: "idx_appointment_clinic_date")
+  @@index([professionalId, scheduledDate], map: "idx_appointment_professional_schedule")
+  @@index([status, scheduledDate], map: "idx_appointment_status_date")
+  @@index([appointmentType, consultationRequired], map: "idx_appointment_legal_flow")
+  @@index([paymentStatus], map: "idx_appointment_payment")
+  @@index([bookingSource, createdAt], map: "idx_appointment_analytics")
+  @@index([isFirstVisit, userId], map: "idx_appointment_first_visit")
+  @@index([medicalClearance, clearanceProvidedBy], map: "idx_appointment_medical_clearance")
+  @@index([followUpRequired, followUpDate], map: "idx_appointment_follow_up")
+  @@map("appointments")
+}
+
+// ============================================================================
+// 📊 ÍNDICES ESPECÍFICOS PARA QUERIES DE NEGOCIO CRÍTICAS
+// ============================================================================
+// 
+// 1. GESTIÓN DIARIA DE AGENDA:
+//    - idx_appointment_professional_schedule: Para cargar agenda del profesional
+//    - idx_appointment_clinic_date: Para vista general de la clínica por día
+//
+// 2. SEGUIMIENTO DE ESTADOS LEGALES:
+//    - idx_appointment_legal_flow: Para citas que requieren consulta previa
+//    - idx_appointment_medical_clearance: Para validaciones médicas pendientes
+//
+// 3. ANALYTICS Y REPORTES:
+//    - idx_appointment_analytics: Para análisis por canal de adquisición
+//    - idx_appointment_first_visit: Para métricas de nuevos clientes
+//
+// 4. OPERACIONES POST-TRATAMIENTO:
+//    - idx_appointment_follow_up: Para seguimientos programados
+//    - idx_appointment_payment: Para gestión de pagos
+//
+// 5. EXPERIENCIA DE USUARIO:
+//    - idx_appointment_user_status: Para historial personal del cliente
+//
+// ============================================================================
+
+// ============================================================================
+// 🔚 FIN DEL MÓDULO DE BOOKING
+// ============================================================================
+// Total de modelos: 1 (pero es el modelo más complejo y crítico)
+// Líneas: ~200
+// Funcionalidad: Sistema completo de citas con compliance legal y seguimiento
+// ============================================================================
