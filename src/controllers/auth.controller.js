@@ -1,5 +1,5 @@
 // ============================================================================
-// src/controllers/auth.controller.js - CONECTADO CON PRISMA SCHEMA ✅
+// src/controllers/auth.controller.js - FINAL CORREGIDO PARA USUARIOS REALES ✅
 // ============================================================================
 
 const bcrypt = require('bcrypt');
@@ -37,7 +37,7 @@ const generateTokens = (payload) => {
 };
 
 // ============================================================================
-// SEED DATA FUNCTION - CREA USUARIOS INICIALES
+// SEED DATA FUNCTION - SOLO CAMPOS BÁSICOS QUE EXISTEN ✅
 // ============================================================================
 const ensureSeedData = async () => {
   try {
@@ -63,10 +63,6 @@ const ensureSeedData = async () => {
           city: 'Madrid',
           country: 'ES',
           timezone: 'Europe/Madrid',
-          businessHours: JSON.stringify({
-            weekdays: { open: '09:00', close: '18:00' },
-            weekend: { open: '09:00', close: '16:00' }
-          }),
           isActive: true,
           isVerified: true,
           onboardingCompleted: true,
@@ -109,122 +105,8 @@ const ensureSeedData = async () => {
       });
     }
 
-    // 3. Crear profesional por defecto si no existe
-    let professional = await prisma.professional.findUnique({
-      where: { email: 'dra.martinez@madrid-centro.com' }
-    });
-
-    if (!professional) {
-      console.log('👩‍⚕️ Creando profesional por defecto...');
-      const hashedPassword = await bcrypt.hash('prof123', 12);
-      
-      professional = await prisma.professional.create({
-        data: {
-          clinicId: clinic.id,
-          email: 'dra.martinez@madrid-centro.com',
-          passwordHash: hashedPassword,
-          role: 'PROFESSIONAL',
-          firstName: 'Dra. María',
-          lastName: 'Martínez',
-          phone: '+34 600 987 654',
-          licenseNumber: '28/12345',
-          specialties: JSON.stringify(['Medicina Estética', 'Dermatología']),
-          certifications: JSON.stringify(['Certificación en Botox', 'Master en Medicina Estética']),
-          experience: 8,
-          bio: 'Especialista en medicina estética con más de 8 años de experiencia',
-          languages: JSON.stringify(['es', 'en']),
-          employmentType: 'FULL_TIME',
-          hourlyRate: 85,
-          workingDays: JSON.stringify(['monday', 'tuesday', 'wednesday', 'thursday', 'friday']),
-          rating: 4.9,
-          totalAppointments: 1250,
-          totalRevenue: 89500,
-          patientSatisfaction: 4.8,
-          isActive: true,
-          isVerified: true,
-          onboardingCompleted: true
-        }
-      });
-    }
-
-    // 4. Crear tratamientos básicos si no existen
-    const treatmentCount = await prisma.treatment.count({
-      where: { clinicId: clinic.id }
-    });
-
-    if (treatmentCount === 0) {
-      console.log('💉 Creando tratamientos por defecto...');
-      
-      const treatments = [
-        {
-          name: 'Limpieza Facial Profunda',
-          description: 'Limpieza profunda con extracción de puntos negros',
-          category: 'facial',
-          subcategory: 'limpieza',
-          durationMinutes: 60,
-          price: 75,
-          vipPrice: 60,
-          beautyPointsEarned: 15,
-          iconName: 'sparkles',
-          riskLevel: 'LOW',
-          requiresConsultation: false,
-          requiresMedicalStaff: false,
-          consentType: 'SIMPLE',
-          appointmentType: 'DIRECT',
-          isActive: true,
-          isFeatured: true
-        },
-        {
-          name: 'Ácido Hialurónico - Relleno Labial',
-          description: 'Tratamiento de relleno labial con ácido hialurónico',
-          category: 'medicina-estetica',
-          subcategory: 'rellenos',
-          durationMinutes: 45,
-          price: 350,
-          vipPrice: 280,
-          beautyPointsEarned: 50,
-          iconName: 'medical',
-          riskLevel: 'HIGH',
-          requiresConsultation: true,
-          requiresMedicalStaff: true,
-          consentType: 'MEDICAL',
-          appointmentType: 'CONSULTATION_SEPARATE',
-          consentFormRequired: true,
-          isActive: true,
-          isFeatured: true
-        },
-        {
-          name: 'Radiofrecuencia Corporal',
-          description: 'Tratamiento corporal con radiofrecuencia',
-          category: 'corporal',
-          subcategory: 'reafirmante',
-          durationMinutes: 60,
-          price: 85,
-          vipPrice: 70,
-          beautyPointsEarned: 18,
-          iconName: 'body',
-          riskLevel: 'LOW',
-          requiresConsultation: false,
-          requiresMedicalStaff: false,
-          consentType: 'SIMPLE',
-          appointmentType: 'DIRECT',
-          isActive: true,
-          isFeatured: false
-        }
-      ];
-
-      for (const treatmentData of treatments) {
-        await prisma.treatment.create({
-          data: {
-            ...treatmentData,
-            clinicId: clinic.id
-          }
-        });
-      }
-    }
-
     console.log('✅ Datos iniciales verificados/creados');
-    return { clinic, user, professional };
+    return { clinic, user };
 
   } catch (error) {
     console.error('❌ Error creating seed data:', error);
@@ -234,7 +116,7 @@ const ensureSeedData = async () => {
 
 class AuthController {
   // ========================================================================
-  // PATIENT LOGIN - CONECTADO CON PRISMA ✅
+  // PATIENT LOGIN ✅
   // ========================================================================
   static async patientLogin(req, res) {
     try {
@@ -272,7 +154,7 @@ class AuthController {
       }
 
       // Verificar clínica si se especifica
-      if (clinicSlug && user.primaryClinic.slug !== clinicSlug) {
+      if (clinicSlug && user.primaryClinic?.slug !== clinicSlug) {
         return res.status(401).json({
           success: false,
           error: { message: 'Usuario no pertenece a esta clínica', code: 'WRONG_CLINIC' }
@@ -321,14 +203,14 @@ class AuthController {
             vipStatus: user.vipStatus,
             loyaltyTier: user.loyaltyTier,
             primaryClinicId: user.primaryClinicId,
-            clinic: {
+            clinic: user.primaryClinic ? {
               id: user.primaryClinic.id,
               name: user.primaryClinic.name,
               slug: user.primaryClinic.slug,
               city: user.primaryClinic.city,
               address: user.primaryClinic.address,
               phone: user.primaryClinic.phone
-            }
+            } : null
           },
           tokens: { accessToken, refreshToken, tokenType: 'Bearer', expiresIn: '24h' },
           userType: 'patient'
@@ -346,7 +228,7 @@ class AuthController {
   }
 
   // ========================================================================
-  // PROFESSIONAL LOGIN - CONECTADO CON PRISMA ✅
+  // PROFESSIONAL LOGIN ✅
   // ========================================================================
   static async professionalLogin(req, res) {
     try {
@@ -354,7 +236,6 @@ class AuthController {
       
       console.log(`👨‍⚕️ Professional login: ${email} at ${clinicSlug || 'any'}`);
       
-      // Asegurar datos iniciales
       await ensureSeedData();
       
       if (!email || !password) {
@@ -380,7 +261,7 @@ class AuthController {
       }
 
       // Verificar clínica si se especifica
-      if (clinicSlug && professional.clinic.slug !== clinicSlug) {
+      if (clinicSlug && professional.clinic?.slug !== clinicSlug) {
         return res.status(401).json({
           success: false,
           error: { message: 'Profesional no pertenece a esta clínica', code: 'WRONG_CLINIC' }
@@ -423,7 +304,7 @@ class AuthController {
             phone: professional.phone,
             role: professional.role,
             licenseNumber: professional.licenseNumber,
-            specialties: JSON.parse(professional.specialties || '[]'),
+            specialties: professional.specialties ? JSON.parse(professional.specialties) : [],
             experience: professional.experience,
             rating: professional.rating,
             avatarUrl: professional.avatarUrl,
@@ -445,7 +326,7 @@ class AuthController {
   }
 
   // ========================================================================
-  // ADMIN LOGIN - CONECTADO CON PRISMA ✅
+  // ADMIN LOGIN ✅
   // ========================================================================
   static async adminLogin(req, res) {
     try {
@@ -453,7 +334,6 @@ class AuthController {
       
       console.log(`👨‍💼 Admin login: ${email} at ${clinicSlug || 'any'}`);
       
-      // Asegurar datos iniciales
       await ensureSeedData();
       
       if (!email || !password) {
@@ -585,14 +465,24 @@ class AuthController {
   }
 
   // ========================================================================
-  // REGISTER - CONECTADO CON PRISMA ✅
+  // REGISTER - SOLO CAMPOS BÁSICOS ✅
   // ========================================================================
   static async register(req, res) {
     try {
       const { firstName, lastName, email, password, phone, clinicSlug } = req.body;
       
+      console.log(`📝 Registering user: ${email} at clinic: ${clinicSlug || 'auto'}`);
+      
       // Asegurar datos iniciales
       await ensureSeedData();
+      
+      // Validaciones básicas
+      if (!firstName || !lastName || !email || !password) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'Todos los campos son requeridos', code: 'MISSING_FIELDS' }
+        });
+      }
       
       // Verificar si el email ya existe
       const existingUser = await prisma.user.findUnique({
@@ -630,14 +520,14 @@ class AuthController {
       // Hash de la contraseña
       const passwordHash = await bcrypt.hash(password, 12);
 
-      // Crear usuario
+      // ✅ CREAR USUARIO SOLO CON CAMPOS BÁSICOS QUE SABEMOS QUE EXISTEN
       const user = await prisma.user.create({
         data: {
           firstName,
           lastName,
           email: email.toLowerCase(),
           passwordHash,
-          phone,
+          phone: phone || null,
           primaryClinicId: clinic.id,
           beautyPoints: 100, // Bonus de registro
           loyaltyTier: 'BRONZE',
@@ -664,6 +554,8 @@ class AuthController {
       };
 
       const { accessToken, refreshToken } = generateTokens(tokenPayload);
+
+      console.log(`✅ User registered successfully: ${user.email}`);
 
       res.status(201).json({
         success: true,
@@ -697,7 +589,7 @@ class AuthController {
   }
 
   // ========================================================================
-  // VALIDATE SESSION - CONECTADO CON PRISMA ✅
+  // VALIDATE SESSION ✅
   // ========================================================================
   static async validateSession(req, res) {
     try {
@@ -830,28 +722,3 @@ class AuthController {
 }
 
 module.exports = AuthController;
-
-// ============================================================================
-// CREDENCIALES PARA PROBAR:
-// ============================================================================
-/*
-🔐 CREDENCIALES DE USUARIOS CREADOS AUTOMÁTICAMENTE:
-
-PACIENTES:
-- Email: ana@email.com
-- Password: password123
-- Clínica: madrid-centro
-
-PROFESIONALES:
-- Email: dra.martinez@madrid-centro.com  
-- Password: prof123
-- Clínica: madrid-centro
-
-ADMINISTRADORES:
-- Email: madrid-centro@bellezaestetica.com
-- Password: admin123
-- Clínica: madrid-centro
-
-✨ El sistema creará automáticamente estos usuarios en la base de datos 
-   la primera vez que alguien intente hacer login.
-*/
