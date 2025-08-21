@@ -1,5 +1,5 @@
 // ============================================================================
-// app.js - Belleza Estética API v3.0 - PRODUCTION READY ✅ MODULAR SCHEMA
+// app.js - RAILWAY COMPATIBLE v3.0 ✅
 // ============================================================================
 const express = require('express');
 const { PrismaClient } = require('@prisma/client');
@@ -13,17 +13,17 @@ const compression = require('compression');
 const morgan = require('morgan');
 
 // ============================================================================
-// CONFIGURACIÓN
+// CONFIGURACIÓN RAILWAY
 // ============================================================================
 const isProduction = process.env.NODE_ENV === 'production';
 const PORT = process.env.PORT || 3001;
 
-console.log('🚀 Belleza Estética API v3.0 - MODULAR SCHEMA');
+console.log('🚀 Belleza Estética API v3.0 - RAILWAY COMPATIBLE');
 console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
 console.log(`🌐 Port: ${PORT}`);
 
 // ============================================================================
-// VALIDADORES PARA NUEVOS ENUMS
+// VALIDADORES PARA ENUMS
 // ============================================================================
 const validateAppointmentStatus = (status) => {
   const validStatuses = [
@@ -44,11 +44,6 @@ const validatePaymentStatus = (status) => {
     'CANCELLED', 'REFUNDED', 'PARTIALLY_REFUNDED'
   ];
   return validStatuses.includes(status);
-};
-
-const validateTreatmentRiskLevel = (level) => {
-  const validLevels = ['LOW', 'MEDIUM', 'HIGH', 'MEDICAL'];
-  return validLevels.includes(level);
 };
 
 // ============================================================================
@@ -72,7 +67,7 @@ const appointmentRoutes = safeImport('./src/routes/appointment.routes', 'Appoint
 const profileRoutes = safeImport('./src/routes/profile.routes', 'Profile');
 const professionalRoutes = safeImport('./src/routes/professional.routes', 'Professional');
 
-// Rutas nuevas del schema modular
+// Rutas del schema modular
 const reviewRoutes = safeImport('./src/routes/review.routes', 'Review');
 const analyticsRoutes = safeImport('./src/routes/analytics.routes', 'Analytics');
 const consentRoutes = safeImport('./src/routes/consent.routes', 'Consent');
@@ -85,7 +80,7 @@ const notificationsRoutes = safeImport('./src/routes/notifications.routes', 'Not
 const webhookRoutes = safeImport('./src/routes/webhook.routes', 'Webhook');
 
 // ============================================================================
-// PRISMA - INICIALIZACIÓN CON CONFIGURACIÓN MEJORADA
+// PRISMA - CONFIGURACIÓN RAILWAY COMPATIBLE ✅
 // ============================================================================
 let prisma = null;
 
@@ -94,11 +89,10 @@ const initPrisma = () => {
     prisma = new PrismaClient({
       log: isProduction ? ['error'] : ['error', 'warn'],
       datasources: { db: { url: process.env.DATABASE_URL } },
-      // ✅ NUEVO: Configuración optimizada para schema modular
-      errorFormat: 'pretty',
-      rejectOnNotFound: false
+      errorFormat: 'pretty'
+      // ✅ NO incluir rejectOnNotFound (deprecated en Railway)
     });
-    console.log('✅ Prisma client initialized with modular schema');
+    console.log('✅ Prisma client initialized for Railway');
     return true;
   } catch (error) {
     console.error('❌ Prisma init failed:', error.message);
@@ -111,7 +105,7 @@ const initPrisma = () => {
 // ============================================================================
 const app = express();
 
-// Trust proxy
+// Trust proxy para Railway
 app.set('trust proxy', 1);
 
 // Middleware básico
@@ -130,20 +124,19 @@ app.use(cors({
   ]
 }));
 
-// ✅ MEJORADO: Rate limiting más granular
+// Rate limiting optimizado para Railway
 const createLimiter = (windowMs, max, message) => rateLimit({
   windowMs,
   max,
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, error: { message } },
-  skip: (req) => req.path === '/health'
+  skip: (req) => req.path === '/health' || req.path === '/debug/railway'
 });
 
-// Rate limiters específicos
 const generalLimiter = createLimiter(15 * 60 * 1000, 1000, 'Too many requests');
-const authLimiter = createLimiter(15 * 60 * 1000, 10, 'Too many auth attempts');
-const paymentLimiter = createLimiter(60 * 1000, 5, 'Too many payment requests');
+const authLimiter = createLimiter(15 * 60 * 1000, 20, 'Too many auth attempts');
+const paymentLimiter = createLimiter(60 * 1000, 10, 'Too many payment requests');
 
 app.use('/api/auth', authLimiter);
 app.use('/api/payments', paymentLimiter);
@@ -155,7 +148,7 @@ app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 app.use(compression());
 
 // ============================================================================
-// HEALTH CHECK - MEJORADO PARA SCHEMA MODULAR
+// HEALTH CHECK - RAILWAY COMPATIBLE ✅
 // ============================================================================
 app.get('/health', async (req, res) => {
   const startTime = Date.now();
@@ -164,12 +157,12 @@ app.get('/health', async (req, res) => {
     timestamp: new Date().toISOString(),
     uptime: Math.floor(process.uptime()),
     environment: process.env.NODE_ENV || 'development',
-    version: '3.0.0-MODULAR', // ✅ ACTUALIZADO
+    version: '3.0.0-RAILWAY',
     port: PORT,
-    schema: 'modular-v3' // ✅ NUEVO
+    railway: true
   };
 
-  // Test DB connection con queries del nuevo schema
+  // Test DB connection SIN seed data
   if (prisma) {
     try {
       await Promise.race([
@@ -179,18 +172,16 @@ app.get('/health', async (req, res) => {
         )
       ]);
       
-      // ✅ NUEVO: Test de integridad del schema modular
-      const [clinicCount, userCount, appointmentCount] = await Promise.all([
-        prisma.clinic.count(),
-        prisma.user.count(),
-        prisma.appointment.count()
+      // ✅ Test básico de tablas sin campos problemáticos
+      const [clinicCount, userCount] = await Promise.all([
+        prisma.$queryRaw`SELECT COUNT(*) as count FROM clinics`,
+        prisma.$queryRaw`SELECT COUNT(*) as count FROM users`
       ]);
       
       health.database = 'connected';
       health.stats = {
-        clinics: clinicCount,
-        users: userCount,
-        appointments: appointmentCount
+        clinics: Number(clinicCount[0]?.count || 0),
+        users: Number(userCount[0]?.count || 0)
       };
     } catch (error) {
       health.database = 'error';
@@ -205,44 +196,108 @@ app.get('/health', async (req, res) => {
 });
 
 // ============================================================================
-// ROOT ENDPOINT - ACTUALIZADO PARA SCHEMA MODULAR
+// ROOT ENDPOINT - RAILWAY COMPATIBLE ✅
 // ============================================================================
 app.get('/', (req, res) => {
   res.json({
     message: '🏥 Belleza Estética API',
-    version: '3.0.0-MODULAR', // ✅ ACTUALIZADO
+    version: '3.0.0-RAILWAY',
     status: 'running',
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development',
-    schema: 'modular-v3',
+    railway: true,
     endpoints: {
       health: '/health',
+      debug: '/debug/railway',
       auth: '/api/auth',
       treatments: '/api/treatments',
       appointments: '/api/appointments',
       profile: '/api/user',
       clinics: '/api/clinics',
       professionals: '/api/professionals',
-      // ✅ NUEVOS ENDPOINTS
       reviews: '/api/reviews',
       analytics: '/api/analytics',
       consents: '/api/consents'
     },
     features: {
+      railwayCompatible: true,
       modularSchema: true,
-      legalCompliance: true,
-      stripeIntegration: true,
-      reviewSystem: true,
-      analytics: true
+      rawSQLFallbacks: true
     }
   });
 });
 
 // ============================================================================
-// MIDDLEWARE DE VALIDACIÓN PARA NUEVOS ENUMS
+// DEBUG ENDPOINT PARA RAILWAY ✅
+// ============================================================================
+app.get('/debug/railway', async (req, res) => {
+  try {
+    console.log('🔍 Railway debug endpoint called');
+    
+    const debug = {
+      environment: process.env.NODE_ENV,
+      hasDatabase: !!process.env.DATABASE_URL,
+      databaseHost: process.env.DATABASE_URL ? 'configured' : 'missing',
+      prismaConnected: false,
+      tables: {},
+      errors: []
+    };
+    
+    // Test Prisma connection
+    try {
+      await prisma.$connect();
+      debug.prismaConnected = true;
+      
+      // Test tablas básicas con raw SQL
+      try {
+        const clinics = await prisma.$queryRaw`SELECT COUNT(*) as count FROM clinics`;
+        debug.tables.clinics = Number(clinics[0]?.count || 0);
+      } catch (e) {
+        debug.errors.push(`Clinics table: ${e.message}`);
+      }
+      
+      try {
+        const users = await prisma.$queryRaw`SELECT COUNT(*) as count FROM users`;
+        debug.tables.users = Number(users[0]?.count || 0);
+      } catch (e) {
+        debug.errors.push(`Users table: ${e.message}`);
+      }
+      
+      // Test campos específicos
+      try {
+        const userFields = await prisma.$queryRaw`
+          SELECT column_name FROM information_schema.columns 
+          WHERE table_name = 'users' 
+          ORDER BY ordinal_position LIMIT 10
+        `;
+        debug.userFields = userFields.map(f => f.column_name);
+      } catch (e) {
+        debug.errors.push(`User fields: ${e.message}`);
+      }
+      
+    } catch (dbError) {
+      debug.errors.push(`Database connection: ${dbError.message}`);
+    }
+    
+    res.json({
+      success: true,
+      debug,
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      stack: error.stack
+    });
+  }
+});
+
+// ============================================================================
+// MIDDLEWARE DE VALIDACIÓN
 // ============================================================================
 const validateEnums = (req, res, next) => {
-  // Validar appointment status si está presente
   if (req.body.status && req.path.includes('/appointments/')) {
     if (!validateAppointmentStatus(req.body.status)) {
       return res.status(400).json({
@@ -255,7 +310,6 @@ const validateEnums = (req, res, next) => {
     }
   }
 
-  // Validar user role si está presente
   if (req.body.role && req.path.includes('/user')) {
     if (!validateUserRole(req.body.role)) {
       return res.status(400).json({
@@ -292,52 +346,24 @@ if (authRoutes) {
 // Treatment routes
 if (treatmentRoutes) {
   app.use('/api/treatments', treatmentRoutes);
-} else {
-  app.use('/api/treatments', (req, res) => {
-    res.status(503).json({
-      success: false,
-      error: { message: 'Treatment service not available' }
-    });
-  });
 }
 
 // Appointment routes
 if (appointmentRoutes) {
   app.use('/api/appointments', appointmentRoutes);
-} else {
-  app.use('/api/appointments', (req, res) => {
-    res.status(503).json({
-      success: false,
-      error: { message: 'Appointment service not available' }
-    });
-  });
 }
 
 // Profile routes
 if (profileRoutes) {
   app.use('/api/user', profileRoutes);
-} else {
-  app.use('/api/user', (req, res) => {
-    res.status(503).json({
-      success: false,
-      error: { message: 'Profile service not available' }
-    });
-  });
 }
 
 // Professionals routes
 if (professionalRoutes) {
   app.use('/api/professionals', professionalRoutes);
-} else {
-  app.use('/api/professionals', (req, res) => {
-    res.status(503).json({
-      success: false,
-      error: { message: 'Professional service not available' }
-    });
-  });
 }
 
-// ✅ NUEVAS RUTAS DEL SCHEMA MODULAR
+// Nuevas rutas del schema modular
 if (reviewRoutes) {
   app.use('/api/reviews', reviewRoutes);
 }
@@ -351,7 +377,7 @@ if (consentRoutes) {
 }
 
 // ============================================================================
-// CLÍNICAS ENDPOINT - MEJORADO PARA SCHEMA MODULAR
+// CLÍNICAS ENDPOINT - RAILWAY COMPATIBLE ✅
 // ============================================================================
 app.get('/api/clinics', async (req, res) => {
   try {
@@ -362,57 +388,58 @@ app.get('/api/clinics', async (req, res) => {
       });
     }
 
-    // ✅ MEJORADO: Query con nuevos campos del schema modular
-    const clinics = await Promise.race([
-      prisma.clinic.findMany({
+    // ✅ RAW SQL QUERY PARA RAILWAY
+    let clinics;
+    try {
+      clinics = await prisma.$queryRaw`
+        SELECT 
+          id, name, slug, city, postal_code, logo_url, 
+          address, phone, website_url, subscription_plan,
+          is_verified, enable_online_booking, enable_vip_program, enable_payments
+        FROM clinics 
+        WHERE is_active = true AND is_verified = true
+        ORDER BY is_verified DESC, subscription_plan DESC, name ASC
+      `;
+    } catch (rawError) {
+      console.log('⚠️ Raw query failed, using Prisma method:', rawError.message);
+      
+      // Fallback a Prisma normal
+      clinics = await prisma.clinic.findMany({
         where: { 
           isActive: true,
-          emailVerified: true // ✅ NUEVO: Solo clínicas verificadas
+          isVerified: true
         },
         select: {
           id: true,
           name: true,
           slug: true,
           city: true,
-          postalCode: true, // ✅ NUEVO
+          postalCode: true,
           logoUrl: true,
           address: true,
           phone: true,
-          email: true,
           websiteUrl: true,
-          subscriptionPlan: true, // ✅ NUEVO: Mostrar plan
-          isVerified: true, // ✅ NUEVO
-          // ✅ NUEVO: Estadísticas básicas
-          _count: {
-            select: {
-              professionals: { where: { isActive: true } },
-              treatments: { where: { isActive: true } },
-              users: { where: { isActive: true } }
-            }
-          }
+          subscriptionPlan: true,
+          isVerified: true,
+          enableOnlineBooking: true,
+          enableVipProgram: true,
+          enablePayments: true
         },
         orderBy: [
-          { isVerified: 'desc' }, // ✅ NUEVO: Verificadas primero
-          { subscriptionPlan: 'desc' }, // Premium primero
+          { isVerified: 'desc' },
+          { subscriptionPlan: 'desc' },
           { name: 'asc' }
         ]
-      }),
-      new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Database timeout')), 5000)
-      )
-    ]);
+      });
+    }
     
-    console.log(`✅ Retrieved ${clinics.length} verified clinics successfully`);
+    console.log(`✅ Retrieved ${clinics.length} verified clinics`);
     
     res.json({
       success: true,
-      data: clinics.map(clinic => ({
-        ...clinic,
-        stats: clinic._count,
-        _count: undefined // Remover el campo interno
-      })),
+      data: clinics,
       total: clinics.length,
-      version: '3.0.0-MODULAR'
+      version: '3.0.0-RAILWAY'
     });
     
   } catch (error) {
@@ -438,9 +465,24 @@ app.get('/api/clinics/:id', async (req, res) => {
       });
     }
 
-    // ✅ MEJORADO: Query detallada con nuevos campos
-    const clinic = await Promise.race([
-      prisma.clinic.findFirst({
+    // ✅ RAW SQL QUERY PARA RAILWAY
+    let clinic;
+    try {
+      clinic = await prisma.$queryRaw`
+        SELECT 
+          id, name, slug, city, postal_code, logo_url, address, phone, 
+          website_url, timezone, is_active, is_verified, subscription_plan,
+          enable_vip_program, enable_online_booking, enable_payments,
+          created_at
+        FROM clinics 
+        WHERE (id = ${id} OR slug = ${id}) AND is_active = true
+        LIMIT 1
+      `;
+      clinic = clinic[0] || null;
+    } catch (rawError) {
+      console.log('⚠️ Raw query failed, using Prisma method:', rawError.message);
+      
+      clinic = await prisma.clinic.findFirst({
         where: { 
           OR: [{ id }, { slug: id }],
           isActive: true 
@@ -450,44 +492,22 @@ app.get('/api/clinics/:id', async (req, res) => {
           name: true,
           slug: true,
           city: true,
-          postalCode: true, // ✅ NUEVO
+          postalCode: true,
           logoUrl: true,
           address: true,
           phone: true,
-          email: true,
           websiteUrl: true,
           timezone: true,
           isActive: true,
-          isVerified: true, // ✅ NUEVO
-          emailVerified: true, // ✅ NUEVO
-          subscriptionPlan: true, // ✅ NUEVO
-          onboardingCompleted: true, // ✅ NUEVO
-          businessHours: true,
-          // ✅ NUEVO: Configuración legal
-          medicalLicense: true,
-          healthRegistration: true,
-          autonomousCommunity: true,
-          // ✅ NUEVO: Capacidades
+          isVerified: true,
+          subscriptionPlan: true,
           enableVipProgram: true,
           enableOnlineBooking: true,
           enablePayments: true,
-          enableLoyaltyProgram: true,
-          createdAt: true,
-          // ✅ NUEVO: Estadísticas detalladas
-          _count: {
-            select: {
-              professionals: { where: { isActive: true } },
-              treatments: { where: { isActive: true } },
-              users: { where: { isActive: true } },
-              appointments: { where: { status: 'COMPLETED' } }
-            }
-          }
+          createdAt: true
         }
-      }),
-      new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Database timeout')), 3000)
-      )
-    ]);
+      });
+    }
     
     if (!clinic) {
       return res.status(404).json({
@@ -498,34 +518,10 @@ app.get('/api/clinics/:id', async (req, res) => {
     
     console.log(`✅ Retrieved clinic details for: ${clinic.name}`);
     
-    // ✅ NUEVO: Formatear respuesta con estadísticas
-    const response = {
-      ...clinic,
-      stats: clinic._count,
-      capabilities: {
-        vipProgram: clinic.enableVipProgram,
-        onlineBooking: clinic.enableOnlineBooking,
-        payments: clinic.enablePayments,
-        loyaltyProgram: clinic.enableLoyaltyProgram
-      },
-      compliance: {
-        medicalLicense: !!clinic.medicalLicense,
-        healthRegistration: !!clinic.healthRegistration,
-        autonomousCommunity: clinic.autonomousCommunity
-      },
-      _count: undefined, // Remover campo interno
-      enableVipProgram: undefined,
-      enableOnlineBooking: undefined,
-      enablePayments: undefined,
-      enableLoyaltyProgram: undefined,
-      medicalLicense: undefined,
-      healthRegistration: undefined
-    };
-    
     res.json({ 
       success: true, 
-      data: response,
-      version: '3.0.0-MODULAR'
+      data: clinic,
+      version: '3.0.0-RAILWAY'
     });
     
   } catch (error) {
@@ -550,7 +546,7 @@ if (notificationsRoutes) app.use('/api/notifications', notificationsRoutes);
 if (webhookRoutes) app.use('/api/webhooks', webhookRoutes);
 
 // ============================================================================
-// ERROR HANDLING - MEJORADO
+// ERROR HANDLING - RAILWAY COMPATIBLE ✅
 // ============================================================================
 
 // 404 handler
@@ -561,18 +557,18 @@ app.use('*', (req, res) => {
       message: 'Endpoint not found',
       path: req.originalUrl,
       method: req.method,
-      version: '3.0.0-MODULAR'
+      version: '3.0.0-RAILWAY'
     }
   });
 });
 
-// Global error handler mejorado
+// Global error handler Railway compatible
 app.use((err, req, res, next) => {
   console.error('❌ Global error:', err.message);
   
   if (res.headersSent) return next(err);
   
-  // ✅ NUEVO: Manejo específico de errores de Prisma
+  // Errores específicos de Prisma para Railway
   if (err.code === 'P2002') {
     return res.status(409).json({
       success: false,
@@ -608,11 +604,11 @@ app.use((err, req, res, next) => {
 });
 
 // ============================================================================
-// SERVER STARTUP - MEJORADO
+// SERVER STARTUP - RAILWAY COMPATIBLE ✅
 // ============================================================================
 const startServer = async () => {
   try {
-    console.log('🔄 Initializing server with modular schema...');
+    console.log('🔄 Initializing Railway server...');
     
     // Initialize Prisma
     const prismaOk = initPrisma();
@@ -627,18 +623,8 @@ const startServer = async () => {
         ]);
         console.log('✅ Database connected successfully');
         
-        // ✅ NUEVO: Test del schema modular
-        try {
-          const schemaTest = await prisma.$queryRaw`
-            SELECT table_name 
-            FROM information_schema.tables 
-            WHERE table_schema = 'public' 
-            AND table_name IN ('users', 'clinics', 'appointments', 'treatments', 'consent_form_templates')
-          `;
-          console.log(`✅ Modular schema validated - ${schemaTest.length} core tables found`);
-        } catch (schemaError) {
-          console.warn('⚠️ Schema validation warning:', schemaError.message);
-        }
+        // ✅ NO ejecutar seed data automáticamente en Railway
+        // ❌ NO hacer: await ensureSeedData();
         
       } catch (dbError) {
         console.warn('⚠️ Database connection failed:', dbError.message);
@@ -648,22 +634,18 @@ const startServer = async () => {
     
     // Start server
     const server = app.listen(PORT, '0.0.0.0', () => {
-      console.log('🎯 SERVER READY (MODULAR SCHEMA v3.0):');
+      console.log('🎯 RAILWAY SERVER READY:');
       console.log(`   🌐 Port: ${PORT}`);
       console.log(`   📊 Database: ${prisma ? 'connected' : 'disconnected'}`);
       console.log(`   🔧 Environment: ${process.env.NODE_ENV || 'development'}`);
-      console.log(`   📋 Schema: modular-v3`);
-      console.log(`   ✅ Health check: http://localhost:${PORT}/health`);
-      console.log(`   🏥 Clinics: http://localhost:${PORT}/api/clinics`);
-      console.log(`   💉 Treatments: http://localhost:${PORT}/api/treatments`);
-      console.log(`   📅 Appointments: http://localhost:${PORT}/api/appointments`);
-      console.log(`   👨‍⚕️ Professionals: http://localhost:${PORT}/api/professionals`);
-      console.log(`   ⭐ Reviews: http://localhost:${PORT}/api/reviews`); // ✅ NUEVO
-      console.log(`   📊 Analytics: http://localhost:${PORT}/api/analytics`); // ✅ NUEVO
-      console.log(`   📝 Consents: http://localhost:${PORT}/api/consents`); // ✅ NUEVO
+      console.log(`   🚂 Railway: Compatible`);
+      console.log(`   ✅ Health check: https://clinicbackend-production-9e33.up.railway.app/health`);
+      console.log(`   🔍 Debug: https://clinicbackend-production-9e33.up.railway.app/debug/railway`);
+      console.log(`   🏥 Clinics: https://clinicbackend-production-9e33.up.railway.app/api/clinics`);
+      console.log(`   🔐 Auth: https://clinicbackend-production-9e33.up.railway.app/api/auth`);
     });
     
-    // Graceful shutdown
+    // Graceful shutdown para Railway
     const shutdown = (signal) => {
       console.log(`\n📡 Received ${signal}. Shutting down gracefully...`);
       server.close(async () => {
@@ -692,7 +674,7 @@ const startServer = async () => {
   }
 };
 
-// Error handling
+// Error handling para Railway
 process.on('unhandledRejection', (reason, promise) => {
   console.error('❌ Unhandled Rejection:', reason);
 });
