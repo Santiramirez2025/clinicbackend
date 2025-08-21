@@ -89,7 +89,7 @@ router.get('/clinic/:clinicId',
 );
 
 // ============================================================================
-// ✅ NUEVAS RUTAS PARA COMPLIANCE LEGAL
+// ✅ NUEVAS RUTAS PARA COMPLIANCE LEGAL - CORREGIDAS
 // ============================================================================
 
 // POST /api/treatments/validate-eligibility - Validar elegibilidad para tratamiento
@@ -98,8 +98,11 @@ router.post('/validate-eligibility',
     body('treatmentId').notEmpty().withMessage('treatmentId es requerido'),
     body('userAge').optional().isInt({ min: 16, max: 100 }).withMessage('userAge debe estar entre 16 y 100'),
     body('medicalConditions').optional().isArray().withMessage('medicalConditions debe ser un array'),
-    body('allergies').optional().isArray().withMessage('allergies debe ser un array'),
-    body('medications').optional().isArray().withMessage('medications debe ser un array')
+    // ✅ CORREGIDO: Usar los campos correctos del schema de Prisma
+    body('hasAllergies').optional().isBoolean().withMessage('hasAllergies debe ser true o false'),
+    body('allergyDetails').optional().isString().withMessage('allergyDetails debe ser un string JSON'),
+    body('takingMedications').optional().isBoolean().withMessage('takingMedications debe ser true o false'),
+    body('medicationDetails').optional().isString().withMessage('medicationDetails debe ser un string JSON')
   ],
   validateRequest,
   TreatmentController.validateTreatmentEligibility

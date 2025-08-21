@@ -5,250 +5,6 @@ const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
 // ============================================================================
-// DATOS PREDEFINIDOS - TRATAMIENTOS CON CLASIFICACIÓN LEGAL
-// ============================================================================
-const FALLBACK_TREATMENTS = [
-  // 🟢 GRUPO A - RIESGO BAJO (Sin consulta previa obligatoria)
-  {
-    id: 'facial-basic-1',
-    name: 'Limpieza Facial Profunda',
-    shortDescription: 'Limpieza profunda con extracción de comedones',
-    description: 'Tratamiento completo de limpieza facial que incluye análisis de piel, limpieza profunda, extracción de comedones, mascarilla purificante e hidratación. Ideal para pieles mixtas y grasas.',
-    category: 'facial',
-    subcategory: 'limpieza',
-    durationMinutes: 60,
-    price: 65,
-    vipPrice: 55,
-    riskLevel: 'LOW',
-    requiresConsultation: false,
-    requiresMedicalStaff: false,
-    consentType: 'SIMPLE',
-    appointmentType: 'DIRECT',
-    minimumAge: 16,
-    contraindications: ['Heridas abiertas en la cara', 'Dermatitis activa', 'Uso reciente de isotretinoína'],
-    sideEffects: ['Enrojecimiento temporal', 'Sensibilidad leve'],
-    recoveryTime: '0-24h',
-    iconName: 'sparkles',
-    color: '#E8F5E8',
-    isPopular: true,
-    isFeatured: false,
-    isActive: true,
-    beautyPointsEarned: 15,
-    legalNotice: 'Tratamiento de bajo riesgo que no requiere consulta previa.'
-  },
-  {
-    id: 'facial-basic-2',
-    name: 'Hidratación Facial Premium',
-    shortDescription: 'Tratamiento hidratante con ácido hialurónico',
-    description: 'Sesión intensiva de hidratación con sérums de ácido hialurónico de diferentes pesos moleculares, mascarilla hidratante y masaje facial relajante.',
-    category: 'facial',
-    subcategory: 'hidratacion',
-    durationMinutes: 45,
-    price: 75,
-    vipPrice: 65,
-    riskLevel: 'LOW',
-    requiresConsultation: false,
-    requiresMedicalStaff: false,
-    consentType: 'SIMPLE',
-    appointmentType: 'DIRECT',
-    minimumAge: 18,
-    contraindications: ['Alergias conocidas a ácido hialurónico'],
-    sideEffects: ['Posible sensibilidad temporal'],
-    recoveryTime: '0h',
-    iconName: 'water',
-    color: '#E3F2FD',
-    isFeatured: true,
-    isPopular: false,
-    isActive: true,
-    beautyPointsEarned: 20,
-    legalNotice: 'Tratamiento seguro de hidratación sin contraindicaciones importantes.'
-  },
-  {
-    id: 'corporal-basic-1',
-    name: 'Masaje Relajante Completo',
-    shortDescription: 'Masaje corporal completo de relajación',
-    description: 'Sesión de masaje corporal completo con aceites esenciales para relajación muscular, reducción del estrés y mejora de la circulación.',
-    category: 'corporal',
-    subcategory: 'masajes',
-    durationMinutes: 90,
-    price: 85,
-    vipPrice: 75,
-    riskLevel: 'LOW',
-    requiresConsultation: false,
-    requiresMedicalStaff: false,
-    consentType: 'SIMPLE',
-    appointmentType: 'DIRECT',
-    minimumAge: 16,
-    contraindications: ['Embarazo primer trimestre', 'Lesiones musculares recientes', 'Fiebre'],
-    sideEffects: ['Relajación muscular', 'Somnolencia temporal'],
-    recoveryTime: '0h',
-    iconName: 'hand-heart',
-    color: '#FFF3E0',
-    isPopular: true,
-    isFeatured: false,
-    isActive: true,
-    beautyPointsEarned: 25,
-    legalNotice: 'Tratamiento de bienestar sin riesgos médicos.'
-  },
-  {
-    id: 'corporal-basic-2',
-    name: 'Exfoliación Corporal Suave',
-    shortDescription: 'Peeling corporal suave con hidratación',
-    description: 'Exfoliación suave de todo el cuerpo con productos naturales, seguida de hidratación intensiva con cremas nutritivas.',
-    category: 'corporal',
-    subcategory: 'exfoliacion',
-    durationMinutes: 75,
-    price: 70,
-    vipPrice: 60,
-    riskLevel: 'LOW',
-    requiresConsultation: false,
-    requiresMedicalStaff: false,
-    consentType: 'SIMPLE',
-    appointmentType: 'DIRECT',
-    minimumAge: 16,
-    contraindications: ['Piel irritada o con heridas', 'Dermatitis activa', 'Quemaduras solares recientes'],
-    sideEffects: ['Enrojecimiento temporal leve'],
-    recoveryTime: '0-12h',
-    iconName: 'refresh',
-    color: '#F3E5F5',
-    isPopular: false,
-    isFeatured: false,
-    isActive: true,
-    beautyPointsEarned: 20,
-    legalNotice: 'Exfoliación suave apta para todos los tipos de piel.'
-  },
-
-  // 🟡 GRUPO B - RIESGO MEDIO (Consulta recomendada)
-  {
-    id: 'facial-medium-1',
-    name: 'Peeling Químico Suave',
-    shortDescription: 'Peeling con ácidos suaves para renovación celular',
-    description: 'Peeling químico superficial con ácidos glicólico y láctico para renovación celular, mejora de textura y reducción de manchas leves.',
-    category: 'facial',
-    subcategory: 'peeling',
-    durationMinutes: 75,
-    price: 120,
-    vipPrice: 100,
-    riskLevel: 'MEDIUM',
-    requiresConsultation: true,
-    requiresMedicalStaff: false,
-    consentType: 'INFORMED',
-    appointmentType: 'CONSULTATION_TREATMENT',
-    consultationDuration: 15,
-    minimumAge: 18,
-    contraindications: ['Embarazo', 'Lactancia', 'Uso de retinoides', 'Piel sensible extrema', 'Exposición solar reciente'],
-    sideEffects: ['Enrojecimiento', 'Descamación leve', 'Sensibilidad temporal', 'Posible hiperpigmentación'],
-    recoveryTime: '3-7 días',
-    followUpRequired: true,
-    iconName: 'sparkles-outline',
-    color: '#FFF9C4',
-    isPopular: false,
-    isFeatured: true,
-    isActive: true,
-    beautyPointsEarned: 35,
-    consentFormRequired: true,
-    legalNotice: 'Requiere consulta previa para evaluar tipo de piel y posibles contraindicaciones.'
-  },
-  {
-    id: 'facial-medium-2',
-    name: 'Radiofrecuencia Facial',
-    shortDescription: 'Tratamiento de radiofrecuencia para firmeza',
-    description: 'Sesión de radiofrecuencia facial para estimular la producción de colágeno, mejorar la firmeza de la piel y reducir líneas de expresión.',
-    category: 'facial',
-    subcategory: 'radiofrecuencia',
-    durationMinutes: 60,
-    price: 150,
-    vipPrice: 130,
-    riskLevel: 'MEDIUM',
-    requiresConsultation: true,
-    requiresMedicalStaff: false,
-    consentType: 'INFORMED',
-    appointmentType: 'CONSULTATION_TREATMENT',
-    consultationDuration: 20,
-    minimumAge: 25,
-    contraindications: ['Marcapasos', 'Embarazo', 'Implantes metálicos faciales', 'Cáncer de piel', 'Diabetes descompensada'],
-    sideEffects: ['Enrojecimiento temporal', 'Sensación de calor', 'Hinchazón leve'],
-    recoveryTime: '0-24h',
-    iconName: 'radio',
-    color: '#E1F5FE',
-    isPopular: true,
-    isFeatured: false,
-    isActive: true,
-    beautyPointsEarned: 40,
-    consentFormRequired: true,
-    legalNotice: 'Tratamiento con tecnología médica que requiere evaluación previa.'
-  },
-
-  // 🔴 GRUPO B - RIESGO ALTO (Consulta médica obligatoria)
-  {
-    id: 'medical-high-1',
-    name: 'Ácido Hialurónico - Labios',
-    shortDescription: 'Aumento y definición de labios con ácido hialurónico',
-    description: 'Tratamiento de medicina estética para aumento y definición de labios mediante inyección de ácido hialurónico reticulado de alta calidad.',
-    category: 'medicina-estetica',
-    subcategory: 'rellenos',
-    durationMinutes: 45,
-    price: 350,
-    vipPrice: 315,
-    riskLevel: 'HIGH',
-    requiresConsultation: true,
-    requiresMedicalStaff: true,
-    consentType: 'MEDICAL',
-    appointmentType: 'CONSULTATION_SEPARATE',
-    consultationDuration: 30,
-    minimumAge: 18,
-    regulatoryCategory: 'SANITARIO',
-    authorizedProfessionalTypes: ['MEDICO', 'ENFERMERO_ESPECIALISTA'],
-    contraindications: ['Embarazo', 'Lactancia', 'Herpes labial activo', 'Alergias a ácido hialurónico', 'Trastornos autoinmunes', 'Trastornos de coagulación'],
-    sideEffects: ['Hinchazón', 'Moratones', 'Dolor leve', 'Asimetría temporal', 'Nódulos', 'Reacciones alérgicas'],
-    recoveryTime: '7-14 días',
-    followUpRequired: true,
-    iconName: 'medical',
-    color: '#FFEBEE',
-    isPopular: true,
-    isFeatured: true,
-    isActive: true,
-    beautyPointsEarned: 75,
-    consentFormRequired: true,
-    digitalSignatureRequired: true,
-    legalNotice: 'TRATAMIENTO MÉDICO: Requiere consulta médica previa obligatoria y consentimiento informado.'
-  },
-  {
-    id: 'medical-high-2',
-    name: 'Toxina Botulínica - Arrugas',
-    shortDescription: 'Tratamiento de arrugas de expresión con bótox',
-    description: 'Aplicación de toxina botulínica tipo A para el tratamiento de arrugas de expresión en frente, entrecejo y patas de gallo.',
-    category: 'medicina-estetica',
-    subcategory: 'botox',
-    durationMinutes: 30,
-    price: 250,
-    vipPrice: 225,
-    riskLevel: 'HIGH',
-    requiresConsultation: true,
-    requiresMedicalStaff: true,
-    consentType: 'MEDICAL',
-    appointmentType: 'CONSULTATION_SEPARATE',
-    consultationDuration: 30,
-    minimumAge: 25,
-    regulatoryCategory: 'SANITARIO',
-    authorizedProfessionalTypes: ['MEDICO'],
-    contraindications: ['Embarazo', 'Lactancia', 'Miastenia gravis', 'Esclerosis lateral amiotrófica', 'Infección local', 'Alergia a toxina botulínica'],
-    sideEffects: ['Dolor en punto de inyección', 'Cefalea leve', 'Ptosis temporal', 'Asimetría facial temporal'],
-    recoveryTime: '0-7 días',
-    followUpRequired: true,
-    iconName: 'medical-outline',
-    color: '#FCE4EC',
-    isPopular: true,
-    isFeatured: false,
-    isActive: true,
-    beautyPointsEarned: 60,
-    consentFormRequired: true,
-    digitalSignatureRequired: true,
-    legalNotice: 'TRATAMIENTO MÉDICO: Solo puede ser realizado por médicos colegiados. Consulta previa obligatoria.'
-  }
-];
-
-// ============================================================================
 // UTILIDADES Y HELPERS
 // ============================================================================
 
@@ -359,59 +115,45 @@ const TreatmentController = {
         clinicId, category, isVipExclusive, minPrice, maxPrice, search, limit, offset 
       });
 
-      let treatments = [];
+      const where = {
+        isActive: true,
+        ...(clinicId && { clinicId }),
+        ...(category && { category }),
+        ...(isVipExclusive !== undefined && { isVipExclusive: isVipExclusive === 'true' }),
+        ...(minPrice && { price: { gte: parseFloat(minPrice) } }),
+        ...(maxPrice && { price: { lte: parseFloat(maxPrice) } }),
+        ...(search && {
+          OR: [
+            { name: { contains: search, mode: 'insensitive' } },
+            { description: { contains: search, mode: 'insensitive' } },
+            { shortDescription: { contains: search, mode: 'insensitive' } }
+          ]
+        })
+      };
 
-      // Intentar obtener de la base de datos
-      try {
-        const where = {
-          isActive: true,
-          ...(clinicId && { clinicId }),
-          ...(category && { category }),
-          ...(isVipExclusive !== undefined && { isVipExclusive: isVipExclusive === 'true' }),
-          ...(minPrice && { price: { gte: parseFloat(minPrice) } }),
-          ...(maxPrice && { price: { lte: parseFloat(maxPrice) } }),
-          ...(search && {
-            OR: [
-              { name: { contains: search, mode: 'insensitive' } },
-              { description: { contains: search, mode: 'insensitive' } },
-              { shortDescription: { contains: search, mode: 'insensitive' } }
-            ]
-          })
-        };
-
-        treatments = await prisma.treatment.findMany({
-          where,
-          orderBy: [
-            { isFeatured: 'desc' },
-            { isPopular: 'desc' },
-            { sortOrder: 'asc' },
-            { name: 'asc' }
-          ],
-          take: parseInt(limit),
-          skip: parseInt(offset)
-        });
-
-      } catch (dbError) {
-        console.warn('⚠️ Database query failed, using fallback data:', dbError.message);
-      }
-
-      // Si no hay datos en BD, usar fallback
-      if (treatments.length === 0) {
-        console.log('💡 Using fallback treatment data');
-        treatments = FALLBACK_TREATMENTS.filter(treatment => {
-          if (category && treatment.category !== category) return false;
-          if (isVipExclusive === 'true' && !treatment.isVipExclusive) return false;
-          if (minPrice && treatment.price < parseFloat(minPrice)) return false;
-          if (maxPrice && treatment.price > parseFloat(maxPrice)) return false;
-          if (search) {
-            const searchLower = search.toLowerCase();
-            return treatment.name.toLowerCase().includes(searchLower) ||
-                   treatment.description.toLowerCase().includes(searchLower) ||
-                   (treatment.shortDescription && treatment.shortDescription.toLowerCase().includes(searchLower));
+      const treatments = await prisma.treatment.findMany({
+        where,
+        include: {
+          clinic: {
+            select: {
+              id: true,
+              name: true,
+              city: true
+            }
           }
-          return true;
-        }).slice(parseInt(offset), parseInt(offset) + parseInt(limit));
-      }
+        },
+        orderBy: [
+          { isFeatured: 'desc' },
+          { isPopular: 'desc' },
+          { sortOrder: 'asc' },
+          { name: 'asc' }
+        ],
+        take: parseInt(limit),
+        skip: parseInt(offset)
+      });
+
+      // Obtener total para paginación
+      const total = await prisma.treatment.count({ where });
 
       // Agregar información legal a cada tratamiento
       const treatmentsWithLegalInfo = treatments.map(addLegalInfoToTreatment);
@@ -420,12 +162,12 @@ const TreatmentController = {
         success: true,
         data: {
           treatments: treatmentsWithLegalInfo,
-          total: treatmentsWithLegalInfo.length,
+          total,
           categories: getAvailableCategories(treatmentsWithLegalInfo),
           pagination: {
             limit: parseInt(limit),
             offset: parseInt(offset),
-            hasMore: treatmentsWithLegalInfo.length === parseInt(limit)
+            hasMore: parseInt(offset) + parseInt(limit) < total
           },
           legalInfo: {
             complianceNote: "Todos nuestros tratamientos cumplen con la normativa sanitaria vigente",
@@ -443,7 +185,10 @@ const TreatmentController = {
       console.error('❌ Error in getAllTreatments:', error);
       res.status(500).json({
         success: false,
-        error: { message: 'Error obteniendo tratamientos' }
+        error: { 
+          message: 'Error obteniendo tratamientos',
+          details: error.message
+        }
       });
     }
   },
@@ -455,35 +200,29 @@ const TreatmentController = {
 
       console.log('⭐ Getting featured treatments for dashboard:', { clinicId, userId, limit });
 
-      let treatments = [];
+      const where = {
+        isActive: true,
+        isFeatured: true,
+        ...(clinicId && { clinicId })
+      };
 
-      // Intentar obtener de BD
-      try {
-        const where = {
-          isActive: true,
-          isFeatured: true,
-          ...(clinicId && { clinicId })
-        };
-
-        treatments = await prisma.treatment.findMany({
-          where,
-          orderBy: [
-            { isPopular: 'desc' },
-            { sortOrder: 'asc' }
-          ],
-          take: parseInt(limit)
-        });
-
-      } catch (dbError) {
-        console.warn('⚠️ Database query failed for featured treatments:', dbError.message);
-      }
-
-      // Fallback a tratamientos destacados
-      if (treatments.length === 0) {
-        treatments = FALLBACK_TREATMENTS
-          .filter(t => t.isFeatured || t.isPopular)
-          .slice(0, parseInt(limit));
-      }
+      const treatments = await prisma.treatment.findMany({
+        where,
+        include: {
+          clinic: {
+            select: {
+              id: true,
+              name: true,
+              city: true
+            }
+          }
+        },
+        orderBy: [
+          { isPopular: 'desc' },
+          { sortOrder: 'asc' }
+        ],
+        take: parseInt(limit)
+      });
 
       const treatmentsWithLegalInfo = treatments.map(addLegalInfoToTreatment);
 
@@ -499,7 +238,10 @@ const TreatmentController = {
       console.error('❌ Error in getFeaturedTreatments:', error);
       res.status(500).json({
         success: false,
-        error: { message: 'Error obteniendo tratamientos destacados' }
+        error: { 
+          message: 'Error obteniendo tratamientos destacados',
+          details: error.message
+        }
       });
     }
   },
@@ -511,32 +253,19 @@ const TreatmentController = {
 
       console.log('📂 Getting treatment categories:', { clinicId });
 
-      let treatments = [];
+      const where = {
+        isActive: true,
+        ...(clinicId && { clinicId })
+      };
 
-      // Intentar obtener de BD
-      try {
-        const where = {
-          isActive: true,
-          ...(clinicId && { clinicId })
-        };
-
-        treatments = await prisma.treatment.findMany({
-          where,
-          select: {
-            category: true,
-            subcategory: true,
-            riskLevel: true
-          }
-        });
-
-      } catch (dbError) {
-        console.warn('⚠️ Database query failed for categories:', dbError.message);
-        treatments = FALLBACK_TREATMENTS;
-      }
-
-      if (treatments.length === 0) {
-        treatments = FALLBACK_TREATMENTS;
-      }
+      const treatments = await prisma.treatment.findMany({
+        where,
+        select: {
+          category: true,
+          subcategory: true,
+          riskLevel: true
+        }
+      });
 
       const categories = getAvailableCategories(treatments);
 
@@ -552,7 +281,10 @@ const TreatmentController = {
       console.error('❌ Error in getCategories:', error);
       res.status(500).json({
         success: false,
-        error: { message: 'Error obteniendo categorías' }
+        error: { 
+          message: 'Error obteniendo categorías',
+          details: error.message
+        }
       });
     }
   },
@@ -571,45 +303,35 @@ const TreatmentController = {
         });
       }
 
-      let treatments = [];
+      const where = {
+        isActive: true,
+        ...(clinicId && { clinicId }),
+        OR: [
+          { name: { contains: q, mode: 'insensitive' } },
+          { description: { contains: q, mode: 'insensitive' } },
+          { shortDescription: { contains: q, mode: 'insensitive' } },
+          { category: { contains: q, mode: 'insensitive' } },
+          { subcategory: { contains: q, mode: 'insensitive' } }
+        ]
+      };
 
-      // Intentar búsqueda en BD
-      try {
-        const where = {
-          isActive: true,
-          ...(clinicId && { clinicId }),
-          OR: [
-            { name: { contains: q, mode: 'insensitive' } },
-            { description: { contains: q, mode: 'insensitive' } },
-            { shortDescription: { contains: q, mode: 'insensitive' } },
-            { category: { contains: q, mode: 'insensitive' } },
-            { subcategory: { contains: q, mode: 'insensitive' } }
-          ]
-        };
-
-        treatments = await prisma.treatment.findMany({
-          where,
-          orderBy: [
-            { isPopular: 'desc' },
-            { isFeatured: 'desc' }
-          ],
-          take: parseInt(limit)
-        });
-
-      } catch (dbError) {
-        console.warn('⚠️ Database search failed:', dbError.message);
-      }
-
-      // Fallback search
-      if (treatments.length === 0) {
-        const searchLower = q.toLowerCase();
-        treatments = FALLBACK_TREATMENTS.filter(treatment => 
-          treatment.name.toLowerCase().includes(searchLower) ||
-          treatment.description.toLowerCase().includes(searchLower) ||
-          treatment.category.toLowerCase().includes(searchLower) ||
-          (treatment.subcategory && treatment.subcategory.toLowerCase().includes(searchLower))
-        ).slice(0, parseInt(limit));
-      }
+      const treatments = await prisma.treatment.findMany({
+        where,
+        include: {
+          clinic: {
+            select: {
+              id: true,
+              name: true,
+              city: true
+            }
+          }
+        },
+        orderBy: [
+          { isPopular: 'desc' },
+          { isFeatured: 'desc' }
+        ],
+        take: parseInt(limit)
+      });
 
       const treatmentsWithLegalInfo = treatments.map(addLegalInfoToTreatment);
 
@@ -626,7 +348,10 @@ const TreatmentController = {
       console.error('❌ Error in searchTreatments:', error);
       res.status(500).json({
         success: false,
-        error: { message: 'Error en la búsqueda de tratamientos' }
+        error: { 
+          message: 'Error en la búsqueda de tratamientos',
+          details: error.message
+        }
       });
     }
   },
@@ -639,38 +364,32 @@ const TreatmentController = {
 
       console.log('🏥 Getting treatments by clinic:', { clinicId, category, isVipExclusive });
 
-      let treatments = [];
+      const where = {
+        clinicId,
+        isActive: true,
+        ...(category && { category }),
+        ...(isVipExclusive !== undefined && { isVipExclusive: isVipExclusive === 'true' })
+      };
 
-      // Intentar obtener de BD
-      try {
-        const where = {
-          clinicId,
-          isActive: true,
-          ...(category && { category }),
-          ...(isVipExclusive !== undefined && { isVipExclusive: isVipExclusive === 'true' })
-        };
-
-        treatments = await prisma.treatment.findMany({
-          where,
-          orderBy: [
-            { isFeatured: 'desc' },
-            { isPopular: 'desc' },
-            { name: 'asc' }
-          ]
-        });
-
-      } catch (dbError) {
-        console.warn('⚠️ Database query failed for clinic treatments:', dbError.message);
-      }
-
-      // Fallback - todos los tratamientos disponibles
-      if (treatments.length === 0) {
-        treatments = FALLBACK_TREATMENTS.filter(treatment => {
-          if (category && treatment.category !== category) return false;
-          if (isVipExclusive === 'true' && !treatment.isVipExclusive) return false;
-          return true;
-        });
-      }
+      const treatments = await prisma.treatment.findMany({
+        where,
+        include: {
+          clinic: {
+            select: {
+              id: true,
+              name: true,
+              city: true,
+              phone: true,
+              address: true
+            }
+          }
+        },
+        orderBy: [
+          { isFeatured: 'desc' },
+          { isPopular: 'desc' },
+          { name: 'asc' }
+        ]
+      });
 
       const treatmentsWithLegalInfo = treatments.map(addLegalInfoToTreatment);
 
@@ -688,7 +407,10 @@ const TreatmentController = {
       console.error('❌ Error in getTreatmentsByClinic:', error);
       res.status(500).json({
         success: false,
-        error: { message: 'Error obteniendo tratamientos de la clínica' }
+        error: { 
+          message: 'Error obteniendo tratamientos de la clínica',
+          details: error.message
+        }
       });
     }
   },
@@ -700,43 +422,32 @@ const TreatmentController = {
 
       console.log('🔍 Getting treatment details:', { id });
 
-      let treatment = null;
-
-      // Intentar obtener de BD
-      try {
-        treatment = await prisma.treatment.findUnique({
-          where: { id, isActive: true },
-          include: {
-            clinic: {
-              select: {
-                id: true,
-                name: true,
-                city: true,
-                phone: true,
-                address: true
-              }
+      const treatment = await prisma.treatment.findUnique({
+        where: { 
+          id, 
+          isActive: true 
+        },
+        include: {
+          clinic: {
+            select: {
+              id: true,
+              name: true,
+              city: true,
+              phone: true,
+              address: true,
+              timezone: true
+            }
+          },
+          consentFormTemplate: {
+            select: {
+              id: true,
+              name: true,
+              title: true,
+              consentType: true
             }
           }
-        });
-
-      } catch (dbError) {
-        console.warn('⚠️ Database query failed for treatment details:', dbError.message);
-      }
-
-      // Fallback search
-      if (!treatment) {
-        treatment = FALLBACK_TREATMENTS.find(t => t.id === id);
-        if (treatment) {
-          // Agregar info de clínica demo
-          treatment.clinic = {
-            id: 'demo-clinic-1',
-            name: 'Belleza Estética Madrid',
-            city: 'Madrid',
-            phone: '+34 91 555 0123',
-            address: 'Calle Gran Vía, 28, Madrid'
-          };
         }
-      }
+      });
 
       if (!treatment) {
         return res.status(404).json({
@@ -758,28 +469,41 @@ const TreatmentController = {
       console.error('❌ Error in getTreatmentDetails:', error);
       res.status(500).json({
         success: false,
-        error: { message: 'Error obteniendo detalles del tratamiento' }
+        error: { 
+          message: 'Error obteniendo detalles del tratamiento',
+          details: error.message
+        }
       });
     }
   },
 
-  // ✅ VALIDAR ELEGIBILIDAD PARA TRATAMIENTO (NUEVO - COMPLIANCE LEGAL)
+  // ✅ VALIDAR ELEGIBILIDAD PARA TRATAMIENTO (COMPLIANCE LEGAL)
   async validateTreatmentEligibility(req, res) {
     try {
-      const { treatmentId, userAge, medicalConditions = [], allergies = [] } = req.body;
+      const { 
+        treatmentId, 
+        userAge, 
+        medicalConditions = [], 
+        hasAllergies = false,
+        allergyDetails = null,
+        takingMedications = false,
+        medicationDetails = null
+      } = req.body;
 
-      console.log('🔍 Validating treatment eligibility:', { treatmentId, userAge, medicalConditions, allergies });
+      console.log('🔍 Validating treatment eligibility:', { 
+        treatmentId, 
+        userAge, 
+        medicalConditions, 
+        hasAllergies,
+        takingMedications
+      });
 
-      let treatment = null;
-
-      // Buscar tratamiento
-      try {
-        treatment = await prisma.treatment.findUnique({
-          where: { id: treatmentId, isActive: true }
-        });
-      } catch (dbError) {
-        treatment = FALLBACK_TREATMENTS.find(t => t.id === treatmentId);
-      }
+      const treatment = await prisma.treatment.findUnique({
+        where: { 
+          id: treatmentId, 
+          isActive: true 
+        }
+      });
 
       if (!treatment) {
         return res.status(404).json({
@@ -802,10 +526,9 @@ const TreatmentController = {
         validationResults.blockers.push(`Edad mínima requerida: ${treatment.minimumAge} años`);
       }
 
-      // Validar contraindicaciones
+      // Validar contraindicaciones médicas
       if (treatment.contraindications && Array.isArray(treatment.contraindications)) {
         const userConditionsLower = medicalConditions.map(c => c.toLowerCase());
-        const userAllergiesLower = allergies.map(a => a.toLowerCase());
         
         treatment.contraindications.forEach(contraindication => {
           const contraindicationLower = contraindication.toLowerCase();
@@ -815,15 +538,28 @@ const TreatmentController = {
             contraindicationLower.includes(condition) || condition.includes(contraindicationLower)
           )) {
             validationResults.isEligible = false;
-            validationResults.blockers.push(`Contraindicación: ${contraindication}`);
+            validationResults.blockers.push(`Contraindicación médica: ${contraindication}`);
           }
           
-          // Buscar coincidencias en alergias
-          if (userAllergiesLower.some(allergy => 
-            contraindicationLower.includes(allergy) || allergy.includes(contraindicationLower)
-          )) {
-            validationResults.isEligible = false;
-            validationResults.blockers.push(`Alergia contraindicada: ${contraindication}`);
+          // Validar alergias si las hay
+          if (hasAllergies && allergyDetails) {
+            try {
+              const allergies = typeof allergyDetails === 'string' ? 
+                JSON.parse(allergyDetails) : allergyDetails;
+              
+              if (Array.isArray(allergies)) {
+                const userAllergiesLower = allergies.map(a => a.toLowerCase());
+                
+                if (userAllergiesLower.some(allergy => 
+                  contraindicationLower.includes(allergy) || allergy.includes(contraindicationLower)
+                )) {
+                  validationResults.isEligible = false;
+                  validationResults.blockers.push(`Alergia contraindicada: ${contraindication}`);
+                }
+              }
+            } catch (e) {
+              console.warn('Error parsing allergy details:', e);
+            }
           }
         });
       }
@@ -845,13 +581,17 @@ const TreatmentController = {
           break;
       }
 
-      // Agregar advertencias para casos especiales
+      // Agregar advertencias
       if (treatment.sideEffects && treatment.sideEffects.length > 0) {
         validationResults.warnings.push('Revisar posibles efectos secundarios antes del tratamiento');
       }
 
       if (treatment.recoveryTime && treatment.recoveryTime !== '0h') {
         validationResults.warnings.push(`Tiempo de recuperación: ${treatment.recoveryTime}`);
+      }
+
+      if (takingMedications) {
+        validationResults.warnings.push('Informar sobre medicamentos durante la consulta');
       }
 
       res.json({
@@ -867,7 +607,10 @@ const TreatmentController = {
       console.error('❌ Error in validateTreatmentEligibility:', error);
       res.status(500).json({
         success: false,
-        error: { message: 'Error validando elegibilidad para el tratamiento' }
+        error: { 
+          message: 'Error validando elegibilidad para el tratamiento',
+          details: error.message
+        }
       });
     }
   },
@@ -875,19 +618,28 @@ const TreatmentController = {
   // ✅ OBTENER INFORMACIÓN LEGAL ESPECÍFICA
   async getLegalInfo(req, res) {
     try {
-      const { treatmentId } = req.params;
+      const { id: treatmentId } = req.params;
 
       console.log('⚖️ Getting legal info for treatment:', { treatmentId });
 
-      let treatment = null;
-
-      try {
-        treatment = await prisma.treatment.findUnique({
-          where: { id: treatmentId, isActive: true }
-        });
-      } catch (dbError) {
-        treatment = FALLBACK_TREATMENTS.find(t => t.id === treatmentId);
-      }
+      const treatment = await prisma.treatment.findUnique({
+        where: { 
+          id: treatmentId, 
+          isActive: true 
+        },
+        include: {
+          consentFormTemplate: {
+            select: {
+              id: true,
+              name: true,
+              title: true,
+              consentType: true,
+              content: true,
+              fields: true
+            }
+          }
+        }
+      });
 
       if (!treatment) {
         return res.status(404).json({
@@ -914,7 +666,8 @@ const TreatmentController = {
           type: treatment.consentType,
           formRequired: treatment.consentFormRequired || false,
           digitalSignatureRequired: treatment.digitalSignatureRequired || false,
-          description: getConsentDescription(treatment.consentType)
+          description: getConsentDescription(treatment.consentType),
+          template: treatment.consentFormTemplate || null
         },
         professionalRequirements: {
           medicalStaffRequired: treatment.requiresMedicalStaff || false,
@@ -944,7 +697,10 @@ const TreatmentController = {
       console.error('❌ Error in getLegalInfo:', error);
       res.status(500).json({
         success: false,
-        error: { message: 'Error obteniendo información legal' }
+        error: { 
+          message: 'Error obteniendo información legal',
+          details: error.message
+        }
       });
     }
   }
