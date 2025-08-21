@@ -1,14 +1,22 @@
-
-// auth.controller.js - SIN SEED DATA, REGISTRO DIRECTO ✅
+// ============================================================================
+// auth.controller.js - ESPECÍFICO PARA RAILWAY PRODUCTION ✅
 // ============================================================================
 
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { PrismaClient } = require('@prisma/client');
 
-const prisma = new PrismaClient();
+// ✅ CONFIGURACIÓN ESPECÍFICA PARA RAILWAY
+const prisma = new PrismaClient({
+  log: process.env.NODE_ENV === 'production' ? ['error'] : ['error', 'warn'],
+  datasources: {
+    db: {
+      url: process.env.DATABASE_URL
+    }
+  }
+});
 
-
+// ============================================================================
 // CONFIGURACIÓN
 // ============================================================================
 const JWT_SECRET = process.env.JWT_SECRET || 'belleza-secret-2024';
@@ -38,13 +46,20 @@ const generateTokens = (payload) => {
 
 class AuthController {
   // ========================================================================
-  // REGISTER - SIN SEED DATA, 
+  // REGISTER - OPTIMIZADO PARA RAILWAY ✅
   // ========================================================================
   static async register(req, res) {
+    let isProduction = process.env.NODE_ENV === 'production';
+    
     try {
       const { firstName, lastName, email, password, phone, clinicSlug } = req.body;
       
-      console.log(`📝 Direct register attempt: ${email}`);
+      if (isProduction) {
+        console.log(`📝 Railway register: ${email}`);
+      } else {
+        console.log('🔥 === RAILWAY REGISTER DEBUG ===');
+        console.log('📥 Body:', JSON.stringify(req.body, null, 2));
+      }
       
       // Validaciones básicas
       if (!firstName || !lastName || !email || !password) {
@@ -54,92 +69,164 @@ class AuthController {
         });
       }
       
-      // ✅ SIN SEED DATA - VERIFICAR USUARIO EXISTENTE DIRECTAMENTE
-      console.log('🔍 Checking if user exists...');
+      // ✅ PASO 1: VERIFICAR USUARIO EXISTENTE (RAILWAY SAFE)
+      let existingUser;
+      try {
+        existingUser = await prisma.$queryRaw`
+          SELECT id, email FROM users WHERE email = ${email.toLowerCase()} LIMIT 1
+        `;
+      } catch (queryError) {
+        console.error('❌ Raw query failed, trying Prisma method:', queryError.message);
+        
+        // Fallback a método Prisma normal
+        existingUser = await prisma.user.findFirst({
+          where: { email: email.toLowerCase() },
+          select: { id: true, email: true }
+        });
+      }
       
-      const existingUser = await prisma.user.findUnique({
-        where: { email: email.toLowerCase() },
-        select: { id: true, email: true } // Solo campos básicos
-      });
-
-      if (existingUser) {
-        console.log('❌ User already exists');
+      if (existingUser && existingUser.length > 0) {
         return res.status(409).json({
           success: false,
           error: { message: 'Email ya registrado', code: 'EMAIL_EXISTS' }
         });
       }
-
-      console.log('🔍 Looking for any available clinic...');
       
-      // ✅ BUSCAR CUALQUIER CLÍNICA ACTIVA SIN ESPECIFICAR CAMPOS COMPLEJOS
-      const clinic = await prisma.clinic.findFirst({
-        where: { isActive: true },
-        select: { id: true, name: true, slug: true, city: true },
-        orderBy: { createdAt: 'asc' }
-      });
+      // ✅ PASO 2: BUSCAR CLÍNICA (RAILWAY SAFE)
+      let clinic;
+      try {
+        if (clinicSlug) {
+          clinic = await prisma.$queryRaw`
+            SELECT id, name, slug, city FROM clinics 
+            WHERE slug = ${clinicSlug} AND is_active = true 
+            LIMIT 1
+          `;
+          clinic = clinic[0] || null;
+        }
+        
+        if (!clinic) {
+          clinic = await prisma.$queryRaw`
+            SELECT id, name, slug, city FROM clinics 
+            WHERE is_active = true 
+            ORDER BY created_at ASC 
+            LIMIT 1
+          `;
+          clinic = clinic[0] || null;
+        }
+      } catch (clinicError) {
+        console.error('❌ Clinic query failed, trying Prisma method:', clinicError.message);
+        
+        // Fallback a método Prisma normal
+        clinic = await prisma.clinic.findFirst({
+          where: { isActive: true },
+          select: { id: true, name: true, slug: true, city: true },
+          orderBy: { createdAt: 'asc' }
+        });
+      }
 
       if (!clinic) {
-        console.log('❌ No clinics available');
         return res.status(400).json({
           success: false,
           error: { message: 'No hay clínicas disponibles', code: 'NO_CLINICS_AVAILABLE' }
         });
       }
 
-      console.log(`✅ Found clinic: ${clinic.name}`);
-
-      // Hash de la contraseña
-      console.log('🔒 Hashing password...');
+      // ✅ PASO 3: HASH PASSWORD
       const passwordHash = await bcrypt.hash(password, 12);
 
-      console.log('💾 Creating user with minimal fields...');
+      // ✅ PASO 4: CREAR USUARIO (RAILWAY SAFE - RAW SQL)
+      let user;
+      try {
+        // Usar SQL raw para máxima compatibilidad con Railway
+        const userId = await prisma.$queryRaw`
+          INSERT INTO users (
+            id, email, password_hash, first_name, last_name, phone, primary_clinic_id,
+            beauty_points, loyalty_tier, vip_status, is_active, is_verified, 
+            onboarding_completed, privacy_accepted, terms_accepted,
+            email_notifications, sms_notifications, marketing_notifications,
+            data_processing_consent, created_at, updated_at
+          ) VALUES (
+            gen_random_uuid(), 
+            ${email.toLowerCase()}, 
+            ${passwordHash}, 
+            ${firstName}, 
+            ${lastName}, 
+            ${phone || null}, 
+            ${clinic.id},
+            100,
+            'BRONZE',
+            false,
+            true,
+            false,
+            false,
+            true,
+            true,
+            true,
+            false,
+            true,
+            true,
+            NOW(),
+            NOW()
+          ) RETURNING id, email, first_name, last_name, phone, beauty_points, vip_status, loyalty_tier, primary_clinic_id
+        `;
+        
+        user = userId[0];
+        
+      } catch (insertError) {
+        console.error('❌ Raw insert failed, trying Prisma method:', insertError.message);
+        
+        // Fallback a método Prisma normal
+        user = await prisma.user.create({
+          data: {
+            firstName,
+            lastName,
+            email: email.toLowerCase(),
+            passwordHash,
+            phone: phone || null,
+            primaryClinicId: clinic.id,
+            beautyPoints: 100,
+            loyaltyTier: 'BRONZE',
+            vipStatus: false,
+            isActive: true,
+            isVerified: false,
+            onboardingCompleted: false,
+            privacyAccepted: true,
+            termsAccepted: true,
+            emailNotifications: true,
+            smsNotifications: false,
+            marketingNotifications: true,
+            dataProcessingConsent: true
+          },
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+            phone: true,
+            beautyPoints: true,
+            vipStatus: true,
+            loyaltyTier: true,
+            primaryClinicId: true
+          }
+        });
+      }
 
-      // ✅ CREAR USUARIO CON SOLO CAMPOS BÁSICOS MÍNIMOS
-      const user = await prisma.user.create({
-        data: {
-          firstName,
-          lastName,
-          email: email.toLowerCase(),
-          passwordHash,
-          phone: phone || null,
-          primaryClinicId: clinic.id,
-          // ✅ SOLO CAMPOS BÁSICOS QUE SEGURAMENTE EXISTEN
-          beautyPoints: 100,
-          loyaltyTier: 'BRONZE',
-          vipStatus: false,
-          isActive: true,
-          privacyAccepted: true,
-          termsAccepted: true
-          // ❌ NO INCLUIR CAMPOS QUE PUEDEN NO EXISTIR
-        },
-        select: {
-          // ✅ SOLO SELECCIONAR CAMPOS BÁSICOS
-          id: true,
-          email: true,
-          firstName: true,
-          lastName: true,
-          phone: true,
-          beautyPoints: true,
-          vipStatus: true,
-          loyaltyTier: true,
-          primaryClinicId: true
-        }
-      });
-
-      console.log(`✅ User created: ${user.email}`);
-
+      // ✅ PASO 5: GENERAR TOKENS
       const tokenPayload = {
         userId: user.id,
         email: user.email,
         role: 'patient',
-        clinicId: user.primaryClinicId,
+        clinicId: user.primary_clinic_id || user.primaryClinicId,
         userType: 'patient'
       };
 
       const { accessToken, refreshToken } = generateTokens(tokenPayload);
 
-      console.log(`✅ Registration successful: ${user.email}`);
+      if (isProduction) {
+        console.log(`✅ Railway user created: ${user.email}`);
+      } else {
+        console.log('🎉 Registration completed successfully');
+      }
 
       res.status(201).json({
         success: true,
@@ -147,14 +234,14 @@ class AuthController {
           user: {
             id: user.id,
             email: user.email,
-            firstName: user.firstName,
-            lastName: user.lastName,
-            name: `${user.firstName} ${user.lastName}`,
+            firstName: user.first_name || user.firstName,
+            lastName: user.last_name || user.lastName,
+            name: `${user.first_name || user.firstName} ${user.last_name || user.lastName}`,
             phone: user.phone,
             role: 'patient',
-            beautyPoints: user.beautyPoints,
-            vipStatus: user.vipStatus,
-            loyaltyTier: user.loyaltyTier,
+            beautyPoints: user.beauty_points || user.beautyPoints,
+            vipStatus: user.vip_status || user.vipStatus,
+            loyaltyTier: user.loyalty_tier || user.loyaltyTier,
             clinic: {
               id: clinic.id,
               name: clinic.name,
@@ -169,9 +256,9 @@ class AuthController {
       });
 
     } catch (error) {
-      console.error('❌ Registration error:', error);
+      console.error('❌ Railway registration error:', error);
       
-      // ✅ MANEJO ESPECÍFICO DE ERRORES PRISMA
+      // ✅ MANEJO ESPECÍFICO DE ERRORES RAILWAY
       if (error.code === 'P2002') {
         return res.status(409).json({
           success: false,
@@ -186,29 +273,33 @@ class AuthController {
       if (error.code === 'P2025') {
         return res.status(404).json({
           success: false,
-          error: { message: 'Clínica no encontrada', code: 'CLINIC_NOT_FOUND' }
+          error: { message: 'Registro no encontrado', code: 'NOT_FOUND' }
         });
       }
       
+      // Error genérico para Railway
       res.status(500).json({
         success: false,
         error: { 
           message: 'Error interno del servidor', 
           code: 'INTERNAL_ERROR',
-          details: error.message
+          ...(process.env.NODE_ENV !== 'production' && { 
+            details: error.message,
+            stack: error.stack 
+          })
         }
       });
     }
   }
 
   // ========================================================================
-  // LOGIN SIMPLIFICADO ✅
+  // LOGIN SIMPLIFICADO PARA RAILWAY ✅
   // ========================================================================
   static async patientLogin(req, res) {
     try {
       const { email, password, clinicSlug } = req.body;
       
-      console.log(`🏃‍♀️ Simple login: ${email}`);
+      console.log(`🏃‍♀️ Railway login: ${email}`);
       
       if (!email || !password) {
         return res.status(400).json({
@@ -217,25 +308,39 @@ class AuthController {
         });
       }
 
-      // ✅ BUSCAR USUARIO CON CAMPOS BÁSICOS
-      const user = await prisma.user.findFirst({
-        where: {
-          email: email.toLowerCase(),
-          isActive: true
-        },
-        select: {
-          id: true,
-          email: true,
-          firstName: true,
-          lastName: true,
-          phone: true,
-          passwordHash: true,
-          beautyPoints: true,
-          loyaltyTier: true,
-          vipStatus: true,
-          primaryClinicId: true
-        }
-      });
+      // ✅ BUSCAR USUARIO CON RAW SQL PARA RAILWAY
+      let user;
+      try {
+        user = await prisma.$queryRaw`
+          SELECT 
+            id, email, first_name, last_name, phone, password_hash,
+            beauty_points, loyalty_tier, vip_status, primary_clinic_id
+          FROM users 
+          WHERE email = ${email.toLowerCase()} AND is_active = true 
+          LIMIT 1
+        `;
+        user = user[0] || null;
+      } catch (queryError) {
+        // Fallback a Prisma normal
+        user = await prisma.user.findFirst({
+          where: {
+            email: email.toLowerCase(),
+            isActive: true
+          },
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+            phone: true,
+            passwordHash: true,
+            beautyPoints: true,
+            loyaltyTier: true,
+            vipStatus: true,
+            primaryClinicId: true
+          }
+        });
+      }
 
       if (!user) {
         return res.status(401).json({
@@ -245,7 +350,8 @@ class AuthController {
       }
 
       // Verificar contraseña
-      if (!user.passwordHash || !await bcrypt.compare(password, user.passwordHash)) {
+      const passwordField = user.password_hash || user.passwordHash;
+      if (!passwordField || !await bcrypt.compare(password, passwordField)) {
         return res.status(401).json({
           success: false,
           error: { message: 'Contraseña incorrecta', code: 'INVALID_CREDENTIALS' }
@@ -256,13 +362,13 @@ class AuthController {
         userId: user.id,
         email: user.email,
         role: 'patient',
-        clinicId: user.primaryClinicId,
+        clinicId: user.primary_clinic_id || user.primaryClinicId,
         userType: 'patient'
       };
 
       const { accessToken, refreshToken } = generateTokens(tokenPayload);
 
-      console.log(`✅ Login successful: ${user.email}`);
+      console.log(`✅ Railway login successful: ${user.email}`);
 
       res.status(200).json({
         success: true,
@@ -270,15 +376,15 @@ class AuthController {
           user: {
             id: user.id,
             email: user.email,
-            firstName: user.firstName,
-            lastName: user.lastName,
-            name: `${user.firstName} ${user.lastName}`,
+            firstName: user.first_name || user.firstName,
+            lastName: user.last_name || user.lastName,
+            name: `${user.first_name || user.firstName} ${user.last_name || user.lastName}`,
             phone: user.phone,
             role: 'patient',
-            beautyPoints: user.beautyPoints,
-            vipStatus: user.vipStatus,
-            loyaltyTier: user.loyaltyTier,
-            primaryClinicId: user.primaryClinicId
+            beautyPoints: user.beauty_points || user.beautyPoints,
+            vipStatus: user.vip_status || user.vipStatus,
+            loyaltyTier: user.loyalty_tier || user.loyaltyTier,
+            primaryClinicId: user.primary_clinic_id || user.primaryClinicId
           },
           tokens: { accessToken, refreshToken, tokenType: 'Bearer', expiresIn: '24h' },
           userType: 'patient'
@@ -287,7 +393,7 @@ class AuthController {
       });
 
     } catch (error) {
-      console.error('❌ Login error:', error);
+      console.error('❌ Railway login error:', error);
       res.status(500).json({
         success: false,
         error: { message: 'Error interno del servidor', code: 'INTERNAL_ERROR' }
