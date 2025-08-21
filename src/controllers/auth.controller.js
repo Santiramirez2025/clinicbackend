@@ -1,5 +1,5 @@
 // ============================================================================
-// src/controllers/auth.controller.js - FINAL CORREGIDO PARA USUARIOS REALES ✅
+// src/controllers/auth.controller.js - EXACTO PARA TU SCHEMA SIN ERRORES ✅
 // ============================================================================
 
 const bcrypt = require('bcrypt');
@@ -37,7 +37,7 @@ const generateTokens = (payload) => {
 };
 
 // ============================================================================
-// SEED DATA FUNCTION - SOLO CAMPOS BÁSICOS QUE EXISTEN ✅
+// SEED DATA FUNCTION - USANDO CAMPOS EXACTOS DEL SCHEMA ✅
 // ============================================================================
 const ensureSeedData = async () => {
   try {
@@ -72,7 +72,7 @@ const ensureSeedData = async () => {
       });
     }
 
-    // 2. Crear usuario paciente por defecto si no existe
+    // 2. Crear usuario paciente por defecto si no existe - ✅ USANDO CAMPOS EXACTOS
     let user = await prisma.user.findUnique({
       where: { email: 'ana@email.com' }
     });
@@ -89,6 +89,7 @@ const ensureSeedData = async () => {
           passwordHash: hashedPassword,
           phone: '+34 600 123 456',
           primaryClinicId: clinic.id,
+          // ✅ USANDO CAMPOS EXACTOS DEL SCHEMA
           beautyPoints: 150,
           loyaltyTier: 'GOLD',
           vipStatus: true,
@@ -465,7 +466,7 @@ class AuthController {
   }
 
   // ========================================================================
-  // REGISTER - SOLO CAMPOS BÁSICOS ✅
+  // REGISTER - USANDO CAMPOS EXACTOS DEL SCHEMA ✅
   // ========================================================================
   static async register(req, res) {
     try {
@@ -520,7 +521,7 @@ class AuthController {
       // Hash de la contraseña
       const passwordHash = await bcrypt.hash(password, 12);
 
-      // ✅ CREAR USUARIO SOLO CON CAMPOS BÁSICOS QUE SABEMOS QUE EXISTEN
+      // ✅ CREAR USUARIO CON CAMPOS EXACTOS DEL SCHEMA
       const user = await prisma.user.create({
         data: {
           firstName,
@@ -529,6 +530,7 @@ class AuthController {
           passwordHash,
           phone: phone || null,
           primaryClinicId: clinic.id,
+          // ✅ USANDO CAMPOS EXACTOS DEL SCHEMA
           beautyPoints: 100, // Bonus de registro
           loyaltyTier: 'BRONZE',
           vipStatus: false,
