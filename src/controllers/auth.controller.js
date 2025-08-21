@@ -1,4 +1,4 @@
-// ============================================================================
+
 // auth.controller.js - SIN SEED DATA, REGISTRO DIRECTO ✅
 // ============================================================================
 
@@ -8,7 +8,7 @@ const { PrismaClient } = require('@prisma/client');
 
 const prisma = new PrismaClient();
 
-// ============================================================================
+
 // CONFIGURACIÓN
 // ============================================================================
 const JWT_SECRET = process.env.JWT_SECRET || 'belleza-secret-2024';
@@ -38,7 +38,7 @@ const generateTokens = (payload) => {
 
 class AuthController {
   // ========================================================================
-  // REGISTER - SIN SEED DATA, DIRECTO ✅
+  // REGISTER - SIN SEED DATA, 
   // ========================================================================
   static async register(req, res) {
     try {
