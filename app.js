@@ -639,10 +639,10 @@ const startServer = async () => {
       console.log(`   📊 Database: ${prisma ? 'connected' : 'disconnected'}`);
       console.log(`   🔧 Environment: ${process.env.NODE_ENV || 'development'}`);
       console.log(`   🚂 Railway: Compatible`);
-      console.log(`   ✅ Health check: https://clinicbackend-production-c17e.up.railway.app/health`);
-      console.log(`   🔍 Debug: https://clinicbackend-production-c17e.up.railway.app/debug/railway`);
-      console.log(`   🏥 Clinics: https://clinicbackend-production-c17e.up.railway.app/api/clinics`);
-      console.log(`   🔐 Auth: https://clinicbackend-production-c17e.up.railway.app/api/auth`);
+      console.log(`   ✅ Health check: https://clinicbackend-production-8239.up.railway.app/health`);
+      console.log(`   🔍 Debug: https://clinicbackend-production-8239.up.railway.app/debug/railway`);
+      console.log(`   🏥 Clinics: https://clinicbackend-production-8239.up.railway.app/api/clinics`);
+      console.log(`   🔐 Auth: https://clinicbackend-production-8239.up.railway.app/api/auth`);
     });
     
     // Graceful shutdown para Railway
