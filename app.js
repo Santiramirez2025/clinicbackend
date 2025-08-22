@@ -434,12 +434,9 @@ if (appointmentRoutes) {
 // ============================================================================
 if (profileRoutes) {
   console.log('✅ Using actual profile routes');
-  // Tu archivo profile.routes.js tiene router.get('/') que se convierte en /api/user/profile
-  app.use('/api/user/profile', profileRoutes);
-  
-  // También montar en /api/user para compatibilidad
+  // ✅ SOLO montar en /api/user (no en /api/user/profile)
   app.use('/api/user', profileRoutes);
-} else {
+ } else {
   console.log('⚠️ Profile routes not available, using fallback');
   
   // ✅ FALLBACK COMPLETO PARA /api/user/profile
@@ -511,25 +508,25 @@ if (profileRoutes) {
       });
     }
   });
-}
-
-// Professionals routes
-if (professionalRoutes) {
+ }
+ 
+ // Professionals routes
+ if (professionalRoutes) {
   app.use('/api/professionals', professionalRoutes);
-}
-
-// Nuevas rutas del schema modular
-if (reviewRoutes) {
+ }
+ 
+ // Nuevas rutas del schema modular
+ if (reviewRoutes) {
   app.use('/api/reviews', reviewRoutes);
-}
-
-if (analyticsRoutes) {
+ }
+ 
+ if (analyticsRoutes) {
   app.use('/api/analytics', analyticsRoutes);
-}
-
-if (consentRoutes) {
+ }
+ 
+ if (consentRoutes) {
   app.use('/api/consents', consentRoutes);
-}
+ }
 
 // ============================================================================
 // CLÍNICAS ENDPOINT - RAILWAY COMPATIBLE ✅
