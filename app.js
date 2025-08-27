@@ -1,5 +1,5 @@
 // ============================================================================
-// app.js - SINGLE CLINIC PRODUCTION v4.0 ✅ - OPTIMIZED FOR PRODUCTION
+// app.js - SINGLE CLINIC PRODUCTION CORRECTED v4.0
 // ============================================================================
 const express = require('express');
 const { PrismaClient } = require('@prisma/client');
@@ -27,7 +27,29 @@ const CLINIC_CONFIG = {
   email: process.env.CLINIC_EMAIL || 'info@bellezaestetica.com',
   timezone: process.env.CLINIC_TIMEZONE || 'Europe/Madrid',
   logoUrl: process.env.CLINIC_LOGO_URL || null,
-  website: process.env.CLINIC_WEBSITE || null
+  website: process.env.CLINIC_WEBSITE || null,
+  features: {
+    onlineBooking: true,
+    vipProgram: true,
+    payments: true,
+    beautyPoints: true,
+    notifications: true,
+    reviews: true
+  },
+  businessHours: {
+    monday: { open: '09:00', close: '20:00', enabled: true },
+    tuesday: { open: '09:00', close: '20:00', enabled: true },
+    wednesday: { open: '09:00', close: '20:00', enabled: true },
+    thursday: { open: '09:00', close: '20:00', enabled: true },
+    friday: { open: '09:00', close: '20:00', enabled: true },
+    saturday: { open: '10:00', close: '18:00', enabled: true },
+    sunday: { closed: true }
+  },
+  socialMedia: {
+    instagram: process.env.CLINIC_INSTAGRAM || null,
+    facebook: process.env.CLINIC_FACEBOOK || null,
+    tiktok: process.env.CLINIC_TIKTOK || null
+  }
 };
 
 console.log('🏥 Belleza Estética API v4.0 - SINGLE CLINIC PRODUCTION');
@@ -93,7 +115,7 @@ const notificationsRoutes = safeImport('./src/routes/notifications.routes', 'Not
 const webhookRoutes = safeImport('./src/routes/webhook.routes', 'Webhook');
 
 // ============================================================================
-// PRISMA - OPTIMIZADO PARA PRODUCCIÓN ✅
+// PRISMA - OPTIMIZADO PARA PRODUCCIÓN
 // ============================================================================
 let prisma = null;
 
@@ -146,7 +168,7 @@ app.use(helmet({
 // CORS optimizado para producción
 const allowedOrigins = process.env.ALLOWED_ORIGINS 
   ? process.env.ALLOWED_ORIGINS.split(',')
-  : ['http://localhost:3000', 'http://localhost:5173'];
+  : ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:19006'];
 
 app.use(cors({
   origin: isProduction ? allowedOrigins : true,
@@ -186,7 +208,7 @@ app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 app.use(compression());
 
 // ============================================================================
-// HEALTH CHECK - PRODUCCIÓN ✅
+// HEALTH CHECK - PRODUCCIÓN
 // ============================================================================
 app.get('/health', async (req, res) => {
   const startTime = Date.now();
@@ -197,7 +219,8 @@ app.get('/health', async (req, res) => {
     environment: process.env.NODE_ENV || 'development',
     version: '4.0.0-SINGLE-CLINIC',
     clinic: CLINIC_CONFIG.name,
-    port: PORT
+    port: PORT,
+    railway: true
   };
 
   if (prisma) {
@@ -234,7 +257,7 @@ app.get('/health', async (req, res) => {
 });
 
 // ============================================================================
-// ROOT ENDPOINT - SINGLE CLINIC ✅
+// ROOT ENDPOINT - SINGLE CLINIC
 // ============================================================================
 app.get('/', (req, res) => {
   res.json({
@@ -270,37 +293,17 @@ app.get('/', (req, res) => {
 });
 
 // ============================================================================
-// INFORMACIÓN DE CLÍNICA - SINGLE CLINIC ✅
+// INFORMACIÓN DE CLÍNICA - SINGLE CLINIC FIXED
 // ============================================================================
 app.get('/api/clinic/info', (req, res) => {
   res.json({
     success: true,
     data: {
       ...CLINIC_CONFIG,
-      features: {
-        onlineBooking: true,
-        vipProgram: true,
-        payments: true,
-        beautyPoints: true,
-        notifications: true,
-        reviews: true,
-        analytics: true
-      },
-      businessHours: {
-        monday: { open: '09:00', close: '20:00' },
-        tuesday: { open: '09:00', close: '20:00' },
-        wednesday: { open: '09:00', close: '20:00' },
-        thursday: { open: '09:00', close: '20:00' },
-        friday: { open: '09:00', close: '20:00' },
-        saturday: { open: '10:00', close: '18:00' },
-        sunday: { closed: true }
-      },
-      socialMedia: {
-        instagram: process.env.CLINIC_INSTAGRAM || null,
-        facebook: process.env.CLINIC_FACEBOOK || null,
-        tiktok: process.env.CLINIC_TIKTOK || null
-      }
-    }
+      version: '4.0.0-SINGLE-CLINIC',
+      lastUpdated: new Date().toISOString()
+    },
+    message: 'Clinic information retrieved'
   });
 });
 
@@ -341,7 +344,7 @@ app.use('/api', validateEnums);
 // RUTAS PRINCIPALES
 // ============================================================================
 
-// Auth routes (críticas para producción)
+// Auth routes (críticas)
 if (authRoutes) {
   app.use('/api/auth', authRoutes);
 } else {
@@ -353,14 +356,16 @@ if (authRoutes) {
   });
 }
 
-// Treatment routes con fallback optimizado
+// Treatment routes
 if (treatmentRoutes) {
   app.use('/api/treatments', treatmentRoutes);
 } else {
-  console.log('⚠️ Treatment routes not available, using production fallback');
+  console.log('⚠️ Treatment routes not available, using fallback');
   
   app.get('/api/treatments', async (req, res) => {
     try {
+      console.log('🔧 Using fallback treatments endpoint');
+      
       const fallbackTreatments = [
         {
           id: 't1',
@@ -429,23 +434,6 @@ if (treatmentRoutes) {
           beforeCare: ['No exposición solar 2 semanas', 'Afeitar zona 24h antes'],
           afterCare: ['Protección solar obligatoria', 'Hidratación zona'],
           contraindications: ['Piel bronceada', 'Medicación fotosensibilizante']
-        },
-        {
-          id: 't5',
-          name: 'Hidrafacial Premium',
-          description: 'Tratamiento facial de hidratación profunda con tecnología HydraFacial',
-          duration: 50,
-          durationMinutes: 50,
-          price: 95.00,
-          category: 'Facial',
-          emoji: '💧',
-          isPopular: true,
-          isActive: true,
-          availableSlots: 10,
-          benefits: ['Hidratación intensa', 'Poros más cerrados', 'Piel luminosa'],
-          beforeCare: ['Evitar exfoliación previa'],
-          afterCare: ['Mantener hidratación', 'Protección solar'],
-          contraindications: ['Heridas abiertas', 'Irritación severa']
         }
       ];
       
@@ -454,7 +442,7 @@ if (treatmentRoutes) {
         data: fallbackTreatments,
         total: fallbackTreatments.length,
         clinic: CLINIC_CONFIG.name,
-        version: '4.0.0-PRODUCTION'
+        version: '4.0.0-SINGLE-CLINIC'
       });
       
     } catch (error) {
@@ -473,9 +461,7 @@ if (appointmentRoutes) {
   app.use('/api/appointments', appointmentRoutes);
 }
 
-// ============================================================================
-// PROFILE ROUTES - OPTIMIZADO PARA SINGLE CLINIC ✅
-// ============================================================================
+// Profile routes - SINGLE CLINIC OPTIMIZED
 if (profileRoutes) {
   console.log('✅ Using actual profile routes');
   app.use('/api/user', profileRoutes);
@@ -568,7 +554,7 @@ if (notificationsRoutes) app.use('/api/notifications', notificationsRoutes);
 if (webhookRoutes) app.use('/api/webhooks', webhookRoutes);
 
 // ============================================================================
-// ERROR HANDLING - PRODUCCIÓN ✅
+// ERROR HANDLING - PRODUCCIÓN
 // ============================================================================
 
 // 404 handler
@@ -630,7 +616,7 @@ app.use((err, req, res, next) => {
       message: isProduction ? 'Internal server error' : err.message,
       code: 'INTERNAL_ERROR',
       timestamp: new Date().toISOString(),
-      ...(process.env.NODE_ENV === 'development' && { 
+      ...(process.env.NODE_ENV !== 'production' && { 
         details: err.message,
         stack: err.stack
       })
@@ -639,7 +625,7 @@ app.use((err, req, res, next) => {
 });
 
 // ============================================================================
-// SERVER STARTUP - PRODUCCIÓN ✅
+// SERVER STARTUP - PRODUCCIÓN
 // ============================================================================
 const startServer = async () => {
   try {
@@ -685,7 +671,7 @@ const startServer = async () => {
       console.log(`   👩‍⚕️ Professionals: /api/professionals`);
       console.log(`   ⭐ Reviews: /api/reviews`);
       console.log('');
-      console.log('✅ Single Clinic API ready for production! 🚀');
+      console.log('✅ Single Clinic API ready for production!');
     });
     
     // Graceful shutdown
