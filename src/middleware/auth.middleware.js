@@ -1,12 +1,16 @@
 // ============================================================================
-// 🔐 AUTH MIDDLEWARE OPTIMIZADO PARA RAILWAY PRODUCTION ✅
-// src/middleware/auth.middleware.js - OPTIMIZED VERSION
+// 🔐 SINGLE CLINIC AUTH MIDDLEWARE - PRODUCTION READY v4.0 ✅
+// src/middleware/auth.middleware.js - OPTIMIZED FOR SINGLE CLINIC
 // ============================================================================
 
 const jwt = require('jsonwebtoken');
 const { PrismaClient } = require('@prisma/client');
 
-// ✅ OPTIMIZADO: Singleton de Prisma para Railway
+// ============================================================================
+// CONFIGURACIÓN OPTIMIZADA PARA SINGLE CLINIC
+// ============================================================================
+
+// Singleton de Prisma optimizado
 let prisma;
 try {
   if (global.prisma) {
@@ -15,29 +19,26 @@ try {
     prisma = new PrismaClient({
       log: process.env.NODE_ENV === 'production' ? ['error'] : ['error', 'warn'],
       datasources: {
-        db: {
-          url: process.env.DATABASE_URL
-        }
-      }
+        db: { url: process.env.DATABASE_URL }
+      },
+      errorFormat: 'pretty'
     });
-    
-    // Cache en Railway
     global.prisma = prisma;
   }
 } catch (error) {
   console.error('❌ Error initializing Prisma in auth middleware:', error.message);
 }
 
-// ✅ CACHE DE USUARIOS PARA PERFORMANCE EN RAILWAY
+// Cache optimizado para producción
 const userCache = new Map();
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutos
+const CACHE_TTL = process.env.NODE_ENV === 'production' ? 10 * 60 * 1000 : 5 * 60 * 1000; // 10min prod, 5min dev
+const MAX_CACHE_SIZE = 200;
 
 const getCachedUser = (userId, userType) => {
   const key = `${userType}:${userId}`;
   const cached = userCache.get(key);
   
   if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
-    console.log(`🚀 Cache hit for ${key}`);
     return cached.data;
   }
   
@@ -51,15 +52,15 @@ const setCachedUser = (userId, userType, userData) => {
     timestamp: Date.now()
   });
   
-  // Limpiar cache viejo para evitar memory leaks
-  if (userCache.size > 100) {
-    const oldestKey = userCache.keys().next().value;
-    userCache.delete(oldestKey);
+  // Limpieza de cache para evitar memory leaks
+  if (userCache.size > MAX_CACHE_SIZE) {
+    const keysToDelete = Array.from(userCache.keys()).slice(0, 50);
+    keysToDelete.forEach(k => userCache.delete(k));
   }
 };
 
 // ============================================================================
-// FUNCIÓN PRINCIPAL DE VERIFICACIÓN DE TOKEN - OPTIMIZADA
+// VERIFICACIÓN DE TOKEN PRINCIPAL - OPTIMIZADA PARA SINGLE CLINIC
 // ============================================================================
 const verifyToken = async (req, res, next) => {
   try {
@@ -81,8 +82,15 @@ const verifyToken = async (req, res, next) => {
       });
     }
 
-    // ✅ OPTIMIZADO: JWT_SECRET validation
-    const jwtSecret = process.env.JWT_SECRET || 'belleza-secret-2024';
+    // JWT Secret con fallback seguro
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret) {
+      console.error('❌ JWT_SECRET not configured!');
+      return res.status(500).json({
+        success: false,
+        error: { message: 'Configuración de autenticación incorrecta', code: 'CONFIG_ERROR' }
+      });
+    }
     
     // Verificar y decodificar token
     const decoded = jwt.verify(token, jwtSecret);
@@ -91,36 +99,35 @@ const verifyToken = async (req, res, next) => {
       console.log('🔍 Token decoded:', { 
         userId: decoded.userId, 
         professionalId: decoded.professionalId,
-        clinicId: decoded.clinicId,
         role: decoded.role,
         userType: decoded.userType 
       });
     }
 
-    // ✅ OPTIMIZADO: Verificar conexión de BD solo cuando es necesario
     let userData = null;
 
-    // MANEJAR USUARIOS DEMO SIN CONSULTA A BD
+    // MANEJAR USUARIOS DEMO PARA DESARROLLO
     if (decoded.userId === 'demo-user-123') {
       userData = {
         id: 'demo-user-123',
         userId: 'demo-user-123',
         email: 'demo@bellezaestetica.com',
-        firstName: 'Demo',
-        lastName: 'User',
-        name: 'Demo User',
+        firstName: 'Ana',
+        lastName: 'García',
+        name: 'Ana García',
         role: 'CLIENT',
         userType: 'patient',
         beautyPoints: 1250,
         vipStatus: true,
         loyaltyTier: 'GOLD',
-        clinicId: 'demo-clinic-1',
-        isDemo: true
+        totalInvestment: 850.00,
+        sessionsCompleted: 12,
+        isDemo: true,
+        isActive: true
       };
     }
-    // MANEJAR USUARIOS REALES
+    // USUARIOS REALES (CLIENTES)
     else if (decoded.userId) {
-      // ✅ OPTIMIZADO: Verificar cache primero
       userData = getCachedUser(decoded.userId, 'patient');
       
       if (!userData) {
@@ -147,18 +154,12 @@ const verifyToken = async (req, res, next) => {
                 totalInvestment: true,
                 sessionsCompleted: true,
                 isActive: true,
-                primaryClinicId: true,
                 hasAllergies: true,
                 hasMedicalConditions: true,
                 avatarUrl: true,
-                primaryClinic: {
-                  select: { 
-                    id: true, 
-                    name: true, 
-                    slug: true, 
-                    city: true 
-                  }
-                }
+                skinType: true,
+                birthDate: true,
+                role: true
               }
             }),
             new Promise((_, reject) => 
@@ -181,7 +182,7 @@ const verifyToken = async (req, res, next) => {
             lastName: user.lastName,
             name: `${user.firstName} ${user.lastName}`,
             phone: user.phone,
-            role: 'CLIENT',
+            role: user.role || 'CLIENT',
             userType: 'patient',
             avatarUrl: user.avatarUrl,
             beautyPoints: user.beautyPoints || 0,
@@ -191,12 +192,11 @@ const verifyToken = async (req, res, next) => {
             sessionsCompleted: user.sessionsCompleted || 0,
             hasAllergies: user.hasAllergies || false,
             hasMedicalConditions: user.hasMedicalConditions || false,
-            clinic: user.primaryClinic,
-            clinicId: user.primaryClinicId,
-            primaryClinicId: user.primaryClinicId
+            skinType: user.skinType,
+            birthDate: user.birthDate,
+            isActive: true
           };
 
-          // ✅ OPTIMIZADO: Guardar en cache
           setCachedUser(decoded.userId, 'patient', userData);
           
         } catch (dbError) {
@@ -208,9 +208,8 @@ const verifyToken = async (req, res, next) => {
         }
       }
     } 
-    // MANEJAR PROFESIONALES
+    // PROFESIONALES
     else if (decoded.professionalId) {
-      // ✅ OPTIMIZADO: Verificar cache primero
       userData = getCachedUser(decoded.professionalId, 'professional');
       
       if (!userData) {
@@ -238,15 +237,8 @@ const verifyToken = async (req, res, next) => {
                 rating: true,
                 avatarUrl: true,
                 isActive: true,
-                clinicId: true,
-                clinic: {
-                  select: { 
-                    id: true, 
-                    name: true, 
-                    slug: true, 
-                    city: true 
-                  }
-                }
+                schedule: true,
+                bio: true
               }
             }),
             new Promise((_, reject) => 
@@ -278,11 +270,11 @@ const verifyToken = async (req, res, next) => {
             experience: professional.experience,
             rating: professional.rating,
             avatarUrl: professional.avatarUrl,
-            clinic: professional.clinic,
-            clinicId: professional.clinicId
+            schedule: professional.schedule,
+            bio: professional.bio,
+            isActive: true
           };
 
-          // ✅ OPTIMIZADO: Guardar en cache
           setCachedUser(decoded.professionalId, 'professional', userData);
           
         } catch (dbError) {
@@ -294,78 +286,19 @@ const verifyToken = async (req, res, next) => {
         }
       }
     }
-    // MANEJAR ADMINISTRADORES DE CLÍNICA
-    else if (decoded.clinicId && decoded.userType === 'admin') {
-      // ✅ OPTIMIZADO: Verificar cache primero
-      userData = getCachedUser(decoded.clinicId, 'admin');
-      
-      if (!userData) {
-        if (!prisma) {
-          return res.status(503).json({
-            success: false,
-            error: { message: 'Servicio de base de datos no disponible', code: 'DATABASE_UNAVAILABLE' }
-          });
-        }
-
-        try {
-          const clinic = await Promise.race([
-            prisma.clinic.findUnique({
-              where: { id: decoded.clinicId },
-              select: {
-                id: true,
-                name: true,
-                slug: true,
-                email: true,
-                phone: true,
-                city: true,
-                subscriptionPlan: true,
-                maxProfessionals: true,
-                maxPatients: true,
-                isActive: true
-              }
-            }),
-            new Promise((_, reject) => 
-              setTimeout(() => reject(new Error('Database timeout')), 3000)
-            )
-          ]);
-
-          if (!clinic || !clinic.isActive) {
-            return res.status(401).json({
-              success: false,
-              error: { message: 'Clínica no encontrada o inactiva', code: 'CLINIC_NOT_FOUND' }
-            });
-          }
-
-          userData = {
-            id: clinic.id,
-            clinicId: clinic.id,
-            email: clinic.email,
-            name: clinic.name,
-            phone: clinic.phone,
-            role: 'ADMIN',
-            userType: 'admin',
-            subscriptionPlan: clinic.subscriptionPlan,
-            maxProfessionals: clinic.maxProfessionals,
-            maxPatients: clinic.maxPatients,
-            clinic: {
-              id: clinic.id,
-              name: clinic.name,
-              slug: clinic.slug,
-              city: clinic.city
-            }
-          };
-
-          // ✅ OPTIMIZADO: Guardar en cache
-          setCachedUser(decoded.clinicId, 'admin', userData);
-          
-        } catch (dbError) {
-          console.error('❌ Error fetching clinic:', dbError);
-          return res.status(500).json({
-            success: false,
-            error: { message: 'Error interno del servidor', code: 'DATABASE_ERROR' }
-          });
-        }
-      }
+    // ADMINISTRADORES (para single clinic, solo hay un admin general)
+    else if (decoded.userType === 'admin' || decoded.role === 'ADMIN') {
+      userData = {
+        id: decoded.userId || 'admin-1',
+        email: decoded.email || process.env.ADMIN_EMAIL || 'admin@bellezaestetica.com',
+        name: decoded.name || 'Administrador',
+        firstName: 'Admin',
+        lastName: 'Sistema',
+        role: 'ADMIN',
+        userType: 'admin',
+        isActive: true,
+        permissions: ['ALL'] // Admin tiene todos los permisos
+      };
     }
     else {
       return res.status(401).json({
@@ -415,7 +348,7 @@ const verifyToken = async (req, res, next) => {
 };
 
 // ============================================================================
-// AUTENTICACIÓN OPCIONAL - OPTIMIZADA
+// AUTENTICACIÓN OPCIONAL
 // ============================================================================
 const optionalAuth = async (req, res, next) => {
   try {
@@ -433,35 +366,18 @@ const optionalAuth = async (req, res, next) => {
       return next();
     }
 
-    const jwtSecret = process.env.JWT_SECRET || 'belleza-secret-2024';
+    // Intentar autenticar, pero continuar si falla
+    const mockRes = {
+      status: () => ({ json: () => {} }),
+      json: () => {}
+    };
 
-    try {
-      const decoded = jwt.verify(token, jwtSecret);
-      
-      // ✅ OPTIMIZADO: Crear un mini-request para reutilizar verifyToken
-      const mockReq = { 
-        headers: { authorization: authHeader },
-        body: {},
-        params: {},
-        query: {}
-      };
-      
-      await verifyToken(mockReq, { 
-        status: () => ({ json: () => {} }), 
-        json: () => {} 
-      }, (error) => {
-        if (!error && mockReq.user) {
-          req.user = mockReq.user;
-        } else {
-          req.user = null;
-        }
-        next();
-      });
-      
-    } catch (tokenError) {
-      req.user = null;
+    await verifyToken(req, mockRes, (error) => {
+      if (error) {
+        req.user = null;
+      }
       next();
-    }
+    });
 
   } catch (error) {
     req.user = null;
@@ -470,7 +386,7 @@ const optionalAuth = async (req, res, next) => {
 };
 
 // ============================================================================
-// VERIFICAR ROLES ESPECÍFICOS - MEJORADO
+// VERIFICACIÓN DE ROLES
 // ============================================================================
 const requireRole = (allowedRoles) => {
   return (req, res, next) => {
@@ -481,28 +397,34 @@ const requireRole = (allowedRoles) => {
       });
     }
 
-    const userRole = req.user.role;
-    const allowedRolesList = Array.isArray(allowedRoles) ? allowedRoles : [allowedRoles];
+    const userRole = req.user.role ? req.user.role.toUpperCase() : '';
+    const allowedRolesList = Array.isArray(allowedRoles) ? 
+      allowedRoles.map(r => r.toUpperCase()) : 
+      [allowedRoles.toUpperCase()];
 
-    // ✅ MEJORADO: Role mappings más completos
+    // ADMIN siempre tiene acceso
+    if (userRole === 'ADMIN') {
+      return next();
+    }
+
+    // Role mappings para flexibilidad
     const roleMappings = {
-      'CLIENT': ['CLIENT', 'client', 'patient', 'user', 'usuario'],
-      'PROFESSIONAL': ['PROFESSIONAL', 'professional', 'doctor', 'medico', 'profesional'],
-      'MANAGER': ['MANAGER', 'manager', 'supervisor'],
-      'ADMIN': ['ADMIN', 'admin', 'administrator', 'administrador']
+      'CLIENT': ['CLIENT', 'PATIENT', 'USER', 'VIP_CLIENT'],
+      'VIP_CLIENT': ['VIP_CLIENT', 'CLIENT', 'PATIENT', 'USER'],
+      'PROFESSIONAL': ['PROFESSIONAL', 'DOCTOR', 'SPECIALIST'],
+      'MANAGER': ['MANAGER', 'SUPERVISOR'],
+      'ADMIN': ['ADMIN', 'ADMINISTRATOR']
     };
 
     let hasPermission = false;
 
-    // Verificar roles directos
+    // Verificar rol directo
     if (allowedRolesList.includes(userRole)) {
       hasPermission = true;
     } else {
-      // Verificar mappings de roles
+      // Verificar mappings
       for (const allowedRole of allowedRolesList) {
-        const normalizedAllowed = allowedRole.toUpperCase();
-        if (roleMappings[normalizedAllowed] && 
-            roleMappings[normalizedAllowed].includes(userRole)) {
+        if (roleMappings[allowedRole] && roleMappings[allowedRole].includes(userRole)) {
           hasPermission = true;
           break;
         }
@@ -526,7 +448,7 @@ const requireRole = (allowedRoles) => {
 };
 
 // ============================================================================
-// VERIFICAR ACCESO VIP - OPTIMIZADO
+// VERIFICACIÓN VIP - OPTIMIZADA PARA SINGLE CLINIC
 // ============================================================================
 const requireVIP = async (req, res, next) => {
   try {
@@ -537,76 +459,64 @@ const requireVIP = async (req, res, next) => {
       });
     }
     
-    // Los admins y profesionales siempre tienen acceso VIP
+    // Roles privilegiados siempre tienen acceso VIP
     const privilegedRoles = ['ADMIN', 'PROFESSIONAL', 'MANAGER'];
-    if (privilegedRoles.includes(req.user.role.toUpperCase())) {
+    if (privilegedRoles.includes(req.user.role)) {
       return next();
     }
     
-    // Para usuarios demo, permitir acceso VIP
+    // Usuarios demo tienen acceso VIP
     if (req.user.isDemo) {
       return next();
     }
     
-    // Verificar estado VIP del usuario
-    if (req.user.vipStatus) {
+    // Verificar estado VIP directo
+    if (req.user.vipStatus === true) {
       return next();
     }
 
-    // ✅ OPTIMIZADO: Solo verificar suscripción si es necesario
-    if (!prisma) {
-      return res.status(403).json({
-        success: false,
-        error: { 
-          message: 'Acceso VIP requerido', 
-          code: 'VIP_REQUIRED',
-          upgradeUrl: '/vip/upgrade'
+    // Verificar suscripción VIP activa (si hay BD disponible)
+    if (prisma) {
+      try {
+        const activeSubscription = await Promise.race([
+          prisma.vipSubscription.findFirst({
+            where: {
+              userId: req.user.id,
+              status: 'ACTIVE',
+              currentPeriodEnd: { gte: new Date() }
+            }
+          }).catch(() => null),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Timeout')), 2000)
+          )
+        ]);
+
+        if (activeSubscription) {
+          // Actualizar cache
+          req.user.vipStatus = true;
+          setCachedUser(req.user.id, req.user.userType, req.user);
+          return next();
         }
-      });
-    }
-
-    try {
-      const activeSubscription = await Promise.race([
-        prisma.vipSubscription.findFirst({
-          where: {
-            userId: req.user.id,
-            status: 'ACTIVE',
-            currentPeriodEnd: { gte: new Date() }
-          }
-        }).catch(() => null),
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Database timeout')), 2000)
-        )
-      ]);
-
-      if (!activeSubscription) {
-        return res.status(403).json({
-          success: false,
-          error: { 
-            message: 'Acceso VIP requerido', 
-            code: 'VIP_REQUIRED',
-            upgradeUrl: '/vip/upgrade'
-          }
-        });
+      } catch (dbError) {
+        console.warn('⚠️ Error checking VIP status:', dbError.message);
       }
-
-      // Actualizar cache con estado VIP
-      req.user.vipStatus = true;
-      setCachedUser(req.user.id, 'patient', req.user);
-
-      next();
-
-    } catch (dbError) {
-      console.warn('⚠️ Error checking VIP status:', dbError.message);
-      return res.status(403).json({
-        success: false,
-        error: { 
-          message: 'Acceso VIP requerido', 
-          code: 'VIP_REQUIRED',
-          upgradeUrl: '/vip/upgrade'
-        }
-      });
     }
+
+    // Verificar por loyalty tier como backup
+    const vipTiers = ['GOLD', 'PLATINUM', 'DIAMOND'];
+    if (req.user.loyaltyTier && vipTiers.includes(req.user.loyaltyTier.toUpperCase())) {
+      return next();
+    }
+
+    return res.status(403).json({
+      success: false,
+      error: { 
+        message: 'Acceso VIP requerido', 
+        code: 'VIP_REQUIRED',
+        upgradeUrl: '/vip/upgrade',
+        currentTier: req.user.loyaltyTier || 'BRONZE'
+      }
+    });
 
   } catch (error) {
     console.error('❌ Error in requireVIP:', error);
@@ -618,9 +528,9 @@ const requireVIP = async (req, res, next) => {
 };
 
 // ============================================================================
-// VERIFICAR PERTENENCIA A CLÍNICA
+// VERIFICACIÓN DE USUARIO ACTIVO
 // ============================================================================
-const requireClinic = (req, res, next) => {
+const requireActive = (req, res, next) => {
   if (!req.user) {
     return res.status(401).json({
       success: false,
@@ -628,17 +538,13 @@ const requireClinic = (req, res, next) => {
     });
   }
 
-  const hasClinicAssociation = req.user.clinicId || 
-                              req.user.primaryClinicId || 
-                              req.user.isDemo ||
-                              req.user.role === 'ADMIN';
-
-  if (!hasClinicAssociation) {
+  if (!req.user.isActive && !req.user.isDemo) {
     return res.status(403).json({
       success: false,
       error: { 
-        message: 'Usuario debe estar asociado a una clínica', 
-        code: 'NO_CLINIC_ASSOCIATION' 
+        message: 'Cuenta inactiva', 
+        code: 'ACCOUNT_INACTIVE',
+        contactSupport: true
       }
     });
   }
@@ -647,60 +553,108 @@ const requireClinic = (req, res, next) => {
 };
 
 // ============================================================================
-// UTILITY FUNCTIONS
+// UTILITY FUNCTIONS PARA SINGLE CLINIC
 // ============================================================================
-const getUserClinicId = (user) => {
-  return user.clinicId || user.primaryClinicId || (user.clinic ? user.clinic.id : null);
+const isAdmin = (user) => {
+  return user && user.role === 'ADMIN';
 };
 
-const hasClinicAccess = (user, targetClinicId) => {
-  if (!user || !targetClinicId) return false;
+const isProfessional = (user) => {
+  return user && user.role === 'PROFESSIONAL';
+};
+
+const isVIP = (user) => {
+  if (!user) return false;
   
-  // Admin global tiene acceso a todas las clínicas
-  if (user.role === 'ADMIN' && !user.clinicId) return true;
+  // Roles privilegiados
+  if (['ADMIN', 'PROFESSIONAL', 'MANAGER'].includes(user.role)) return true;
   
-  // Usuario demo tiene acceso
+  // Estado VIP directo
+  if (user.vipStatus === true) return true;
+  
+  // Demo users
   if (user.isDemo) return true;
   
-  // Usuario debe pertenecer a la clínica específica
-  const userClinicId = getUserClinicId(user);
-  return userClinicId === targetClinicId;
+  // Loyalty tiers VIP
+  const vipTiers = ['GOLD', 'PLATINUM', 'DIAMOND'];
+  return user.loyaltyTier && vipTiers.includes(user.loyaltyTier.toUpperCase());
+};
+
+const canManageAppointments = (user) => {
+  return user && ['ADMIN', 'PROFESSIONAL', 'MANAGER'].includes(user.role);
+};
+
+const canViewAnalytics = (user) => {
+  return user && ['ADMIN', 'MANAGER'].includes(user.role);
+};
+
+const canManageUsers = (user) => {
+  return user && user.role === 'ADMIN';
 };
 
 // ============================================================================
-// MIDDLEWARE COMBINADOS
+// MIDDLEWARE COMBINADOS PARA SINGLE CLINIC
 // ============================================================================
-const requirePatient = [verifyToken, requireRole(['CLIENT', 'patient'])];
-const requireProfessional = [verifyToken, requireRole(['PROFESSIONAL', 'professional'])];
-const requireAdmin = [verifyToken, requireRole(['ADMIN', 'admin'])];
-const requireClinicAccess = [verifyToken, requireClinic];
-const requireVIPAccess = [verifyToken, requireVIP];
+const requirePatient = [verifyToken, requireActive, requireRole(['CLIENT', 'VIP_CLIENT'])];
+const requireProfessional = [verifyToken, requireActive, requireRole(['PROFESSIONAL'])];
+const requireAdmin = [verifyToken, requireRole(['ADMIN'])];
+const requireVIPAccess = [verifyToken, requireActive, requireVIP];
+const requireManager = [verifyToken, requireActive, requireRole(['ADMIN', 'MANAGER'])];
+
+// ============================================================================
+// MIDDLEWARE DE LOGGING PARA DESARROLLO
+// ============================================================================
+const logAuth = (req, res, next) => {
+  if (process.env.NODE_ENV !== 'production' && req.user) {
+    console.log(`🔍 Auth: ${req.user.name} (${req.user.role}) -> ${req.method} ${req.path}`);
+  }
+  next();
+};
 
 // ============================================================================
 // EXPORTACIONES
 // ============================================================================
 module.exports = {
-  // Core functions
+  // Core authentication
   verifyToken,
   optionalAuth,
   
   // Role-based middleware
   requireRole,
   requireVIP,
-  requireClinic,
+  requireActive,
   
   // Combined middleware
   requirePatient,
   requireProfessional,
   requireAdmin,
-  requireClinicAccess,
   requireVIPAccess,
+  requireManager,
   
   // Utility functions
-  getUserClinicId,
-  hasClinicAccess,
+  isAdmin,
+  isProfessional,
+  isVIP,
+  canManageAppointments,
+  canViewAnalytics,
+  canManageUsers,
   
-  // Legacy aliases
+  // Development helpers
+  logAuth,
+  
+  // Legacy compatibility
   authenticateToken: verifyToken,
-  authenticateAdmin: [verifyToken, requireRole(['ADMIN'])]
+  authenticateAdmin: requireAdmin,
+  
+  // Cache management
+  clearUserCache: (userId, userType) => {
+    const key = `${userType}:${userId}`;
+    userCache.delete(key);
+  },
+  
+  getCacheStats: () => ({
+    size: userCache.size,
+    maxSize: MAX_CACHE_SIZE,
+    ttl: CACHE_TTL
+  })
 };

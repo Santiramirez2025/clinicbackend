@@ -1,553 +1,455 @@
 // ============================================================================
-// src/routes/appointment.routes.js - PRODUCTION READY ✅
+// 📅 SINGLE CLINIC APPOINTMENT ROUTES - PRODUCTION READY v4.0 ✅
+// src/routes/appointment.routes.js - OPTIMIZED FOR SINGLE CLINIC
 // ============================================================================
+
 const express = require('express');
-const { PrismaClient } = require('@prisma/client');
 const AppointmentController = require('../controllers/appointment.controller');
-const { verifyToken } = require('../middleware/auth.middleware');
+const { 
+  verifyToken, 
+  requirePatient, 
+  requireVIPAccess, 
+  optionalAuth 
+} = require('../middleware/auth.middleware');
 
 const router = express.Router();
-const prisma = new PrismaClient();
 
 // ============================================================================
-// UTILITY: AsyncHandler wrapper ✅
+// CONFIGURACIÓN Y UTILIDADES
 // ============================================================================
+
+// AsyncHandler wrapper para manejo de errores
 const asyncHandler = (fn) => (req, res, next) => {
   Promise.resolve(fn(req, res, next)).catch(next);
 };
 
-// ============================================================================
-// MIDDLEWARE: Autenticación para PRODUCCIÓN ✅
-// ============================================================================
-const authenticateToken = async (req, res, next) => {
-  try {
-    // Usar autenticación real obligatoria
-    const authHeader = req.headers.authorization;
-    const token = authHeader && authHeader.split(' ')[1];
-    
-    if (!token) {
-      return res.status(401).json({
+// Validador de parámetros de fecha
+const validateDateParam = (req, res, next) => {
+  const { date } = req.params;
+  if (date) {
+    const parsedDate = new Date(date);
+    if (isNaN(parsedDate.getTime()) || parsedDate < new Date()) {
+      return res.status(400).json({
         success: false,
-        error: { message: 'Token de autenticación requerido' }
+        error: { 
+          message: 'Invalid or past date', 
+          code: 'INVALID_DATE' 
+        }
       });
     }
-    
-    // Usar middleware de verificación real
-    return verifyToken(req, res, next);
-    
-  } catch (error) {
-    console.error('❌ Auth error in appointments:', error.message);
-    res.status(401).json({
-      success: false,
-      error: { message: 'Token inválido o expirado' }
-    });
   }
+  next();
 };
 
 // ============================================================================
-// RUTAS PÚBLICAS ✅
+// HEALTH CHECK
 // ============================================================================
-
-// Health check
 router.get('/health', (req, res) => {
   res.status(200).json({
     success: true,
-    message: 'Appointment routes working correctly',
+    service: 'appointment-service',
+    status: 'healthy',
     timestamp: new Date().toISOString(),
-    version: '3.0.0-PRODUCTION',
+    version: '4.0.0-SINGLE-CLINIC',
+    environment: process.env.NODE_ENV || 'development',
     endpoints: {
       public: [
         'GET /health',
-        'GET /treatments',
-        'GET /availability/:treatmentId/:date'
+        'GET /availability/:date'
       ],
       protected: [
         'GET /dashboard',
         'GET /user',
+        'GET /stats',
         'GET /next',
         'POST /',
         'GET /:id',
+        'PUT /:id',
         'PATCH /:id/cancel'
+      ],
+      vip: [
+        'GET /vip/priority-slots'
       ]
     }
   });
 });
 
-// GET /api/appointments/treatments - Público
-router.get('/treatments', asyncHandler(AppointmentController.getTreatments));
+// ============================================================================
+// RUTAS PÚBLICAS
+// ============================================================================
+
+// Obtener disponibilidad para una fecha
+router.get('/availability/:date', 
+  validateDateParam,
+  asyncHandler(AppointmentController.getAvailability)
+);
 
 // ============================================================================
-// DISPONIBILIDAD - PÚBLICO ✅
+// RUTAS PROTEGIDAS - REQUIEREN AUTENTICACIÓN
 // ============================================================================
-router.get('/availability/:treatmentId/:date', asyncHandler(async (req, res) => {
-  try {
-    const { treatmentId, date } = req.params;
 
-    console.log('⏰ Getting availability for treatment:', treatmentId, 'date:', date);
+// Aplicar autenticación a todas las rutas siguientes
+router.use(verifyToken);
 
-    if (!treatmentId || !date) {
-      return res.status(400).json({
-        success: false,
-        error: { message: 'treatmentId y date son requeridos' }
-      });
-    }
+// Dashboard con datos de citas del usuario
+router.get('/dashboard', 
+  asyncHandler(AppointmentController.getDashboardData)
+);
 
-    // Validar formato de fecha
-    const requestedDate = new Date(date);
-    if (isNaN(requestedDate.getTime())) {
-      return res.status(400).json({
-        success: false,
-        error: { message: 'Formato de fecha inválido' }
-      });
-    }
+// Obtener todas las citas del usuario
+router.get('/user', 
+  asyncHandler(AppointmentController.getUserAppointments)
+);
 
-    // Horarios disponibles realistas
-    const timeSlots = [
-      '09:00', '09:30', '10:00', '10:30', '11:00', '11:30',
-      '12:00', '12:30', '14:00', '14:30', '15:00', '15:30', 
-      '16:00', '16:30', '17:00', '17:30'
-    ];
-
-    const availableSlots = timeSlots.map(time => ({
-      time,
-      available: true,
-      professional: {
-        id: 'prof-available',
-        name: 'Especialista Disponible',
-        specialty: 'Estética'
+// Obtener próxima cita del usuario
+router.get('/next', 
+  asyncHandler(async (req, res) => {
+    try {
+      const userId = req.user?.id || req.user?.userId;
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'Authentication required', code: 'AUTH_REQUIRED' }
+        });
       }
-    }));
 
-    console.log(`✅ Generated ${availableSlots.length} available slots`);
+      const { PrismaClient } = require('@prisma/client');
+      const prisma = new PrismaClient();
 
-    res.json({
-      success: true,
-      data: availableSlots
-    });
+      const nextAppointment = await prisma.appointment.findFirst({
+        where: { 
+          userId,
+          scheduledDate: { gte: new Date() },
+          status: { in: ['PENDING', 'CONFIRMED'] }
+        },
+        include: {
+          treatment: { 
+            select: { 
+              name: true, 
+              durationMinutes: true, 
+              price: true,
+              category: true
+            } 
+          },
+          professional: { 
+            select: { 
+              firstName: true, 
+              lastName: true,
+              specialties: true
+            } 
+          }
+        },
+        orderBy: [
+          { scheduledDate: 'asc' }, 
+          { scheduledTime: 'asc' }
+        ]
+      });
 
-  } catch (error) {
-    console.error('❌ Error getting availability:', error);
-    res.status(500).json({
-      success: false,
-      error: { message: 'Error interno del servidor' }
-    });
-  }
-}));
+      if (!nextAppointment) {
+        return res.status(200).json({
+          success: true,
+          data: null,
+          message: 'No upcoming appointments'
+        });
+      }
 
-// ============================================================================
-// APLICAR AUTENTICACIÓN A RUTAS PROTEGIDAS ✅
-// ============================================================================
-router.use(authenticateToken);
+      res.status(200).json({
+        success: true,
+        data: {
+          id: nextAppointment.id,
+          date: nextAppointment.scheduledDate.toISOString(),
+          time: nextAppointment.scheduledTime ? 
+            new Date(nextAppointment.scheduledTime).toTimeString().slice(0, 5) : 
+            '09:00',
+          treatment: {
+            name: nextAppointment.treatment?.name || 'Treatment',
+            duration: nextAppointment.durationMinutes || 60,
+            price: nextAppointment.finalPrice || nextAppointment.treatment?.price || 0,
+            category: nextAppointment.treatment?.category || 'General'
+          },
+          status: nextAppointment.status.toLowerCase(),
+          professional: nextAppointment.professional ? {
+            name: `${nextAppointment.professional.firstName} ${nextAppointment.professional.lastName}`,
+            specialties: nextAppointment.professional.specialties || []
+          } : null,
+          notes: nextAppointment.notes,
+          beautyPointsEarned: nextAppointment.beautyPointsEarned || 0
+        },
+        message: 'Next appointment retrieved'
+      });
 
-// ============================================================================
-// RUTAS PROTEGIDAS ✅
-// ============================================================================
-
-// GET /api/appointments/dashboard
-router.get('/dashboard', asyncHandler(AppointmentController.getDashboardData));
-
-// GET /api/appointments/user
-router.get('/user', asyncHandler(AppointmentController.getUserAppointments));
-
-// GET /api/appointments/next
-router.get('/next', asyncHandler(AppointmentController.getNextAppointment));
-
-// ============================================================================
-// POST /api/appointments - CREAR NUEVA CITA ✅ PRODUCTION READY
-// ============================================================================
-router.post('/', asyncHandler(async (req, res) => {
-  try {
-    const { treatmentId, date, time, notes, professionalId } = req.body;
-    const userId = req.user?.id || req.user?.userId;
-
-    console.log('📤 Creating appointment for user:', userId, {
-      treatmentId,
-      date,
-      time,
-      professionalId: professionalId || 'auto-assign'
-    });
-
-    // ✅ VALIDACIONES ESTRICTAS
-    if (!treatmentId || !date || !time) {
-      return res.status(400).json({
+    } catch (error) {
+      console.error('Next appointment error:', error);
+      res.status(500).json({
         success: false,
         error: { 
-          message: 'Campos requeridos: treatmentId, date, time',
-          received: { 
-            treatmentId: !!treatmentId, 
-            date: !!date, 
-            time: !!time 
-          }
+          message: 'Error retrieving next appointment', 
+          code: 'NEXT_APPOINTMENT_ERROR' 
         }
       });
     }
+  })
+);
 
-    if (!userId) {
-      return res.status(401).json({
-        success: false,
-        error: { message: 'Usuario no autenticado' }
-      });
-    }
+// Obtener estadísticas de citas
+router.get('/stats', 
+  asyncHandler(AppointmentController.getAppointmentStats)
+);
 
-    // ✅ VERIFICAR QUE EL USUARIO EXISTE
-    const existingUser = await prisma.user.findUnique({
-      where: { id: userId }
-    });
+// ============================================================================
+// CREAR NUEVA CITA
+// ============================================================================
+router.post('/', 
+  asyncHandler(AppointmentController.createAppointment)
+);
 
-    if (!existingUser) {
-      return res.status(404).json({
-        success: false,
-        error: { message: 'Usuario no encontrado' }
-      });
-    }
+// ============================================================================
+// OPERACIONES ESPECÍFICAS DE CITAS
+// ============================================================================
 
-    console.log('✅ User verified:', existingUser.email);
+// Obtener detalles de una cita específica
+router.get('/:appointmentId', 
+  asyncHandler(AppointmentController.getAppointmentById)
+);
 
-    // ✅ PREPARAR DATOS DE LA CITA
-    const scheduledDateTime = new Date(`${date}T${time}:00.000Z`);
-    const endDateTime = new Date(scheduledDateTime.getTime() + 60 * 60000); // 1 hora
+// Actualizar una cita existente
+router.put('/:appointmentId', 
+  asyncHandler(AppointmentController.updateAppointment)
+);
 
-    // ✅ VERIFICAR SI EXISTE CLÍNICA VÁLIDA
-    let clinicId = 'madrid-centro'; // Default
+// Cancelar una cita
+router.patch('/:appointmentId/cancel', 
+  asyncHandler(AppointmentController.cancelAppointment)
+);
+
+// ============================================================================
+// RUTAS VIP - REQUIEREN ACCESO VIP
+// ============================================================================
+
+// Slots prioritarios para usuarios VIP
+router.get('/vip/priority-slots/:date', 
+  requireVIPAccess,
+  validateDateParam,
+  asyncHandler(async (req, res) => {
     try {
-      const clinic = await prisma.clinic.findFirst({
-        where: { isActive: true }
+      const { date } = req.params;
+      
+      // Generar slots VIP (horarios preferenciales)
+      const vipTimeSlots = [
+        '09:00', '09:30', '10:00', '10:30', // Mañana temprano
+        '14:00', '14:30', '15:00', '15:30'  // Después del almuerzo
+      ];
+
+      const prioritySlots = vipTimeSlots.map(time => ({
+        time,
+        available: true,
+        priority: 'VIP',
+        discount: '10% VIP discount applied',
+        professionals: [{
+          id: 'vip-specialist',
+          name: 'Senior Specialist',
+          rating: 4.9,
+          specialties: ['VIP Services', 'Premium Treatments']
+        }]
+      }));
+
+      res.status(200).json({
+        success: true,
+        data: {
+          date,
+          vipSlots: prioritySlots,
+          benefits: [
+            '10% discount on all treatments',
+            'Priority booking',
+            'Senior specialists',
+            'Flexible cancellation'
+          ]
+        },
+        message: 'VIP priority slots retrieved'
       });
-      if (clinic) {
-        clinicId = clinic.id;
-      }
-    } catch (clinicError) {
-      console.log('⚠️ Using default clinic ID');
+
+    } catch (error) {
+      console.error('VIP slots error:', error);
+      res.status(500).json({
+        success: false,
+        error: { 
+          message: 'Error retrieving VIP slots', 
+          code: 'VIP_SLOTS_ERROR' 
+        }
+      });
     }
+  })
+);
 
-    const appointmentData = {
-      userId: userId,
-      treatmentId: treatmentId,
-      clinicId: clinicId,
-      professionalId: professionalId || null,
-      scheduledDate: scheduledDateTime,
-      scheduledTime: scheduledDateTime,
-      endTime: endDateTime,
-      durationMinutes: 60,
-      status: 'PENDING',
-      originalPrice: 5000, // En centavos
-      finalPrice: 5000,
-      notes: notes || null,
-      bookingSource: 'APP',
-      timezone: 'Europe/Madrid'
-    };
+// ============================================================================
+// ENDPOINTS ADMINISTRATIVOS (SOLO DESARROLLO)
+// ============================================================================
 
-    console.log('💾 Creating appointment in database...');
+if (process.env.NODE_ENV !== 'production') {
+  
+  // Test endpoint para crear cita de prueba
+  router.post('/test/create-sample', verifyToken, asyncHandler(async (req, res) => {
+    try {
+      const userId = req.user?.id || req.user?.userId;
+      const { PrismaClient } = require('@prisma/client');
+      const prisma = new PrismaClient();
 
-    // ✅ CREAR CITA SIN INCLUDE INICIAL
-    const appointment = await prisma.appointment.create({
-      data: appointmentData
-    });
+      // Crear cita de prueba
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      tomorrow.setHours(10, 0, 0, 0);
 
-    console.log('✅ Appointment created with ID:', appointment.id);
+      const testAppointment = await prisma.appointment.create({
+        data: {
+          userId,
+          scheduledDate: tomorrow,
+          scheduledTime: tomorrow,
+          durationMinutes: 60,
+          originalPrice: 75.00,
+          finalPrice: 75.00,
+          status: 'PENDING',
+          notes: 'Test appointment created via API'
+        }
+      });
 
-    // ✅ OBTENER DATOS COMPLETOS DESPUÉS DE CREAR
-    const fullAppointment = await prisma.appointment.findUnique({
-      where: { id: appointment.id },
-      include: {
-        treatment: {
-          select: {
-            id: true,
-            name: true,
-            durationMinutes: true,
-            price: true
-          }
-        },
-        clinic: {
-          select: {
-            id: true,
-            name: true,
-            address: true
-          }
-        },
+      res.status(201).json({
+        success: true,
+        data: testAppointment,
+        message: 'Test appointment created'
+      });
+
+    } catch (error) {
+      console.error('Test appointment creation error:', error);
+      res.status(500).json({
+        success: false,
+        error: { message: 'Error creating test appointment' }
+      });
+    }
+  }));
+
+  // Debug endpoint para verificar auth
+  router.get('/debug/auth', verifyToken, (req, res) => {
+    res.status(200).json({
+      success: true,
+      data: {
         user: {
-          select: {
-            id: true,
-            email: true,
-            firstName: true,
-            lastName: true
-          }
-        }
-      }
-    });
-
-    // ✅ RESPUESTA DE ÉXITO
-    return res.status(201).json({
-      success: true,
-      message: 'Cita creada exitosamente',
-      data: {
-        appointment: {
-          id: appointment.id,
-          treatmentId: appointment.treatmentId,
-          treatmentName: fullAppointment?.treatment?.name || 'Tratamiento Estético',
-          userId: appointment.userId,
-          userName: fullAppointment?.user ? 
-            `${fullAppointment.user.firstName} ${fullAppointment.user.lastName}` : 
-            'Usuario',
-          userEmail: fullAppointment?.user?.email,
-          clinicId: appointment.clinicId,
-          clinicName: fullAppointment?.clinic?.name || 'Clínica Estética',
-          clinicAddress: fullAppointment?.clinic?.address,
-          date: appointment.scheduledDate.toISOString(),
-          time: appointment.scheduledTime.toISOString(),
-          endTime: appointment.endTime.toISOString(),
-          duration: appointment.durationMinutes,
-          status: appointment.status,
-          professionalId: appointment.professionalId,
-          notes: appointment.notes,
-          price: appointment.finalPrice,
-          bookingSource: appointment.bookingSource,
-          timezone: appointment.timezone,
-          createdAt: appointment.createdAt.toISOString(),
-          updatedAt: appointment.updatedAt.toISOString()
-        }
-      }
-    });
-
-  } catch (error) {
-    console.error('❌ Error creating appointment:', error);
-    
-    // ✅ MANEJAR ERRORES ESPECÍFICOS DE PRISMA
-    if (error.code === 'P2002') {
-      return res.status(409).json({
-        success: false,
-        error: { message: 'Ya existe una cita para esta fecha y hora' }
-      });
-    }
-    
-    if (error.code === 'P2003') {
-      return res.status(400).json({
-        success: false,
-        error: { message: 'Datos de referencia inválidos' }
-      });
-    }
-
-    res.status(500).json({
-      success: false,
-      error: { 
-        message: 'Error interno del servidor',
-        details: process.env.NODE_ENV === 'development' ? error.message : undefined
-      }
-    });
-  }
-}));
-
-// ============================================================================
-// GET /api/appointments/:id - DETALLES DE CITA ✅
-// ============================================================================
-router.get('/:id', asyncHandler(async (req, res) => {
-  try {
-    const { id } = req.params;
-    const userId = req.user?.id || req.user?.userId;
-
-    console.log('🔍 Getting appointment details:', id, 'for user:', userId);
-
-    const appointment = await prisma.appointment.findFirst({
-      where: { 
-        id: id, 
-        userId: userId 
+          id: req.user?.id,
+          email: req.user?.email,
+          name: req.user?.name,
+          role: req.user?.role,
+          userType: req.user?.userType,
+          vipStatus: req.user?.vipStatus
+        },
+        timestamp: new Date().toISOString()
       },
-      include: {
-        treatment: {
-          select: {
-            id: true,
-            name: true,
-            description: true,
-            durationMinutes: true,
-            price: true,
-            iconName: true
-          }
-        },
-        professional: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true
-          }
-        },
-        clinic: {
-          select: {
-            id: true,
-            name: true,
-            address: true,
-            phone: true
-          }
-        }
-      }
+      message: 'Auth debug info'
     });
-
-    if (!appointment) {
-      return res.status(404).json({
-        success: false,
-        error: { message: 'Cita no encontrada' }
-      });
-    }
-
-    return res.json({
-      success: true,
-      data: {
-        appointment: {
-          id: appointment.id,
-          date: appointment.scheduledDate.toISOString(),
-          time: appointment.scheduledTime.toISOString(),
-          endTime: appointment.endTime.toISOString(),
-          duration: appointment.durationMinutes,
-          status: appointment.status.toLowerCase(),
-          treatment: {
-            id: appointment.treatment?.id,
-            name: appointment.treatment?.name || 'Tratamiento Estético',
-            description: appointment.treatment?.description || 'Tratamiento profesional de belleza',
-            duration: appointment.treatment?.durationMinutes || 60,
-            price: appointment.treatment?.price || appointment.finalPrice,
-            iconName: appointment.treatment?.iconName || 'star'
-          },
-          professional: appointment.professional ? {
-            id: appointment.professional.id,
-            name: `${appointment.professional.firstName} ${appointment.professional.lastName}`
-          } : {
-            id: null,
-            name: 'Especialista Asignado'
-          },
-          clinic: {
-            id: appointment.clinic?.id,
-            name: appointment.clinic?.name || 'Clínica Estética',
-            address: appointment.clinic?.address || 'Dirección disponible en confirmación',
-            phone: appointment.clinic?.phone
-          },
-          notes: appointment.notes,
-          price: appointment.finalPrice,
-          beautyPointsEarned: 50, // Puntos estándar
-          createdAt: appointment.createdAt.toISOString(),
-          updatedAt: appointment.updatedAt.toISOString()
-        }
-      }
-    });
-
-  } catch (error) {
-    console.error('❌ Error getting appointment details:', error);
-    res.status(500).json({
-      success: false,
-      error: { message: 'Error interno del servidor' }
-    });
-  }
-}));
+  });
+}
 
 // ============================================================================
-// PATCH /api/appointments/:id/cancel - CANCELAR CITA ✅
-// ============================================================================
-router.patch('/:id/cancel', asyncHandler(async (req, res) => {
-  try {
-    const { id } = req.params;
-    const userId = req.user?.id || req.user?.userId;
-    const { reason = 'Cancelado por el usuario' } = req.body;
-    
-    console.log('❌ Cancelling appointment:', id, 'for user:', userId);
-
-    // Verificar que la cita existe y pertenece al usuario
-    const appointment = await prisma.appointment.findFirst({
-      where: { 
-        id: id, 
-        userId: userId 
-      }
-    });
-
-    if (!appointment) {
-      return res.status(404).json({
-        success: false,
-        error: { message: 'Cita no encontrada' }
-      });
-    }
-
-    // Verificar que la cita se puede cancelar
-    if (appointment.status === 'CANCELLED') {
-      return res.status(400).json({
-        success: false,
-        error: { message: 'La cita ya está cancelada' }
-      });
-    }
-
-    if (appointment.status === 'COMPLETED') {
-      return res.status(400).json({
-        success: false,
-        error: { message: 'No se puede cancelar una cita completada' }
-      });
-    }
-
-    // Actualizar el estado de la cita
-    const updatedAppointment = await prisma.appointment.update({
-      where: { id: id },
-      data: { 
-        status: 'CANCELLED',
-        notes: appointment.notes ? 
-          `${appointment.notes}\n\n[${new Date().toISOString()}] Cancelado: ${reason}` : 
-          `Cancelado: ${reason}`,
-        updatedAt: new Date()
-      }
-    });
-
-    console.log('✅ Appointment cancelled successfully:', id);
-
-    return res.json({
-      success: true,
-      message: 'Cita cancelada exitosamente',
-      data: { 
-        appointmentId: id,
-        status: 'cancelled',
-        reason: reason,
-        cancelledAt: updatedAppointment.updatedAt.toISOString()
-      }
-    });
-    
-  } catch (error) {
-    console.error('❌ Error cancelling appointment:', error);
-    res.status(500).json({
-      success: false,
-      error: { message: 'Error interno del servidor' }
-    });
-  }
-}));
-
-// ============================================================================
-// MIDDLEWARE DE MANEJO DE ERRORES ✅
+// MANEJO DE ERRORES ESPECÍFICO
 // ============================================================================
 router.use((error, req, res, next) => {
-  console.error('❌ Appointment route error:', error);
+  console.error('Appointment route error:', {
+    url: req.url,
+    method: req.method,
+    error: error.message,
+    code: error.code,
+    stack: process.env.NODE_ENV !== 'production' ? error.stack : undefined
+  });
   
-  if (error.name === 'ValidationError') {
-    return res.status(400).json({
+  // Errores específicos de Prisma
+  if (error.code === 'P2002') {
+    return res.status(409).json({
       success: false,
-      error: { message: 'Datos inválidos', details: error.message }
+      error: { 
+        message: 'Appointment conflict - slot already taken', 
+        code: 'APPOINTMENT_CONFLICT',
+        field: error.meta?.target?.[0] || 'unknown'
+      }
     });
   }
   
   if (error.code === 'P2025') {
     return res.status(404).json({
       success: false,
-      error: { message: 'Recurso no encontrado' }
+      error: { 
+        message: 'Appointment not found', 
+        code: 'APPOINTMENT_NOT_FOUND' 
+      }
     });
   }
 
-  if (error.code === 'P2002') {
-    return res.status(409).json({
+  // Errores de conexión a BD
+  if (error.code === 'P1001' || error.code === 'P1002') {
+    return res.status(503).json({
       success: false,
-      error: { message: 'Conflicto de datos únicos' }
+      error: {
+        message: 'Database connection error',
+        code: 'DATABASE_CONNECTION_ERROR'
+      }
     });
   }
   
-  res.status(500).json({
+  // Errores de validación
+  if (error.name === 'ValidationError') {
+    return res.status(400).json({
+      success: false,
+      error: { 
+        message: 'Validation failed', 
+        code: 'VALIDATION_ERROR',
+        details: error.message
+      }
+    });
+  }
+
+  // Errores de autenticación
+  if (error.name === 'UnauthorizedError' || error.status === 401) {
+    return res.status(401).json({
+      success: false,
+      error: {
+        message: 'Authentication required',
+        code: 'AUTH_REQUIRED'
+      }
+    });
+  }
+
+  // Errores de autorización
+  if (error.status === 403) {
+    return res.status(403).json({
+      success: false,
+      error: {
+        message: 'Access forbidden',
+        code: 'ACCESS_FORBIDDEN'
+      }
+    });
+  }
+
+  // Rate limiting
+  if (error.status === 429) {
+    return res.status(429).json({
+      success: false,
+      error: {
+        message: 'Too many requests',
+        code: 'RATE_LIMIT_EXCEEDED',
+        retryAfter: error.retryAfter
+      }
+    });
+  }
+  
+  // Error genérico
+  res.status(error.status || 500).json({
     success: false,
-    error: { 
-      message: 'Error interno del servidor',
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    error: {
+      message: error.message || 'Internal server error',
+      code: error.code || 'INTERNAL_ERROR',
+      timestamp: new Date().toISOString(),
+      ...(process.env.NODE_ENV !== 'production' && { 
+        stack: error.stack 
+      })
     }
   });
 });
 
 module.exports = router;
-
-console.log('✅ Production-ready appointment routes loaded v3.0.0');

@@ -1,35 +1,78 @@
 // ============================================================================
-// auth.routes.js - OPTIMIZADO PARA PRODUCCIÓN ✅
+// 🔐 SINGLE CLINIC AUTH ROUTES - PRODUCTION READY v4.0 ✅
+// src/routes/auth.routes.js - OPTIMIZED FOR SINGLE CLINIC
 // ============================================================================
+
 const express = require('express');
-const { PrismaClient } = require('@prisma/client');
 const AuthController = require('../controllers/auth.controller');
-const { verifyToken } = require('../middleware/auth.middleware');
+const { verifyToken, optionalAuth } = require('../middleware/auth.middleware');
 
 const router = express.Router();
-const prisma = new PrismaClient();
 
-// ========================================================================
-// RUTAS PÚBLICAS
-// ========================================================================
+// ============================================================================
+// CONFIGURACIÓN DE LA CLÍNICA ÚNICA
+// ============================================================================
+const CLINIC_CONFIG = {
+  id: 'clinic-1',
+  name: process.env.CLINIC_NAME || 'Belleza Estética',
+  slug: 'belleza-estetica',
+  city: process.env.CLINIC_CITY || 'Madrid',
+  address: process.env.CLINIC_ADDRESS || 'Calle Principal 123',
+  phone: process.env.CLINIC_PHONE || '+34 900 123 456',
+  email: process.env.CLINIC_EMAIL || 'info@bellezaestetica.com',
+  timezone: process.env.CLINIC_TIMEZONE || 'Europe/Madrid',
+  logoUrl: process.env.CLINIC_LOGO_URL || null,
+  websiteUrl: process.env.CLINIC_WEBSITE || null,
+  features: {
+    onlineBooking: true,
+    vipProgram: true,
+    payments: true,
+    beautyPoints: true,
+    notifications: true,
+    reviews: true
+  },
+  businessHours: {
+    monday: { open: '09:00', close: '20:00', enabled: true },
+    tuesday: { open: '09:00', close: '20:00', enabled: true },
+    wednesday: { open: '09:00', close: '20:00', enabled: true },
+    thursday: { open: '09:00', close: '20:00', enabled: true },
+    friday: { open: '09:00', close: '20:00', enabled: true },
+    saturday: { open: '10:00', close: '18:00', enabled: true },
+    sunday: { closed: true }
+  },
+  socialMedia: {
+    instagram: process.env.CLINIC_INSTAGRAM || null,
+    facebook: process.env.CLINIC_FACEBOOK || null,
+    tiktok: process.env.CLINIC_TIKTOK || null
+  }
+};
 
-// Health Check mejorado
+// ============================================================================
+// HEALTH CHECK MEJORADO
+// ============================================================================
 router.get('/health', (req, res) => {
   res.status(200).json({
     success: true,
     service: 'auth-service',
     status: 'healthy',
     timestamp: new Date().toISOString(),
-    version: '2.0.0',
+    version: '4.0.0-SINGLE-CLINIC',
     environment: process.env.NODE_ENV || 'development',
+    clinic: {
+      name: CLINIC_CONFIG.name,
+      city: CLINIC_CONFIG.city,
+      timezone: CLINIC_CONFIG.timezone
+    },
     endpoints: {
       public: [
         'GET /api/auth/health',
-        'GET /api/auth/clinics/active',
+        'GET /api/auth/clinic/info',
         'POST /api/auth/register',
-        'POST /api/auth/patient/login',
+        'POST /api/auth/login',
         'POST /api/auth/professional/login',
-        'POST /api/auth/refresh'
+        'POST /api/auth/admin/login',
+        'POST /api/auth/refresh-token',
+        ...(process.env.NODE_ENV !== 'production' ? ['POST /api/auth/demo-login'] : [])
       ],
       protected: [
         'POST /api/auth/logout',
@@ -40,351 +83,250 @@ router.get('/health', (req, res) => {
   });
 });
 
-// ✅ Obtener clínicas activas - OPTIMIZADO
-router.get('/clinics/active', async (req, res) => {
-  try {
-    console.log('📞 GET /auth/clinics/active - Fetching verified clinics');
-    
-    const clinics = await prisma.clinic.findMany({
-      where: { 
-        isActive: true,
-        isVerified: true
-      },
-      select: {
-        id: true, 
-        name: true, 
-        slug: true, 
-        city: true, 
-        postalCode: true,
-        logoUrl: true, 
-        address: true, 
-        phone: true,
-        websiteUrl: true,
-        subscriptionPlan: true,
-        isVerified: true,
-        enableOnlineBooking: true,
-        enableVipProgram: true,
-        enablePayments: true,
-        businessHours: true,
-        timezone: true,
-        _count: {
-          select: {
-            professionals: { where: { isActive: true } },
-            treatments: { where: { isActive: true } },
-            users: { where: { isActive: true } }
-          }
-        }
-      },
-      orderBy: [
-        { subscriptionPlan: 'desc' }, // Premium primero
-        { isVerified: 'desc' }, // Verificadas primero
-        { name: 'asc' }
-      ],
-      take: 50 // Límite para performance
-    });
-
-    // Transformar datos para respuesta
-    const transformedClinics = clinics.map(clinic => ({
-      id: clinic.id,
-      name: clinic.name,
-      slug: clinic.slug,
-      city: clinic.city,
-      postalCode: clinic.postalCode,
-      address: clinic.address,
-      phone: clinic.phone,
-      logoUrl: clinic.logoUrl,
-      websiteUrl: clinic.websiteUrl,
-      subscriptionPlan: clinic.subscriptionPlan,
-      isVerified: clinic.isVerified,
-      features: {
-        onlineBooking: clinic.enableOnlineBooking,
-        vipProgram: clinic.enableVipProgram,
-        payments: clinic.enablePayments
-      },
-      businessHours: clinic.businessHours ? 
-        (typeof clinic.businessHours === 'string' ? 
-          JSON.parse(clinic.businessHours) : 
-          clinic.businessHours) : null,
-      timezone: clinic.timezone,
-      stats: {
-        professionals: clinic._count.professionals,
-        treatments: clinic._count.treatments,
-        patients: clinic._count.users
-      }
-    }));
-
-    console.log(`✅ Retrieved ${transformedClinics.length} verified clinics`);
-
-    res.status(200).json({
-      success: true,
-      data: transformedClinics,
-      total: transformedClinics.length,
-      message: `${transformedClinics.length} clínicas activas encontradas`
-    });
-    
-  } catch (error) {
-    console.error('❌ Error fetching clinics:', error);
-    res.status(500).json({
-      success: false,
-      error: { 
-        message: 'Error obteniendo clínicas', 
-        code: 'CLINIC_FETCH_ERROR',
-        ...(process.env.NODE_ENV !== 'production' && { details: error.message })
-      }
-    });
-  }
+// ============================================================================
+// INFORMACIÓN DE CLÍNICA - SINGLE CLINIC ✅
+// ============================================================================
+router.get('/clinic/info', (req, res) => {
+  res.status(200).json({
+    success: true,
+    data: CLINIC_CONFIG,
+    message: 'Clinic information retrieved'
+  });
 });
 
-// ✅ Obtener información de clínica específica por slug
-router.get('/clinics/:slug', async (req, res) => {
-  try {
-    const { slug } = req.params;
-    
-    console.log(`📞 GET /auth/clinics/${slug} - Fetching clinic details`);
-    
-    const clinic = await prisma.clinic.findFirst({
-      where: { 
-        slug,
-        isActive: true,
-        isVerified: true
-      },
-      select: {
-        id: true,
-        name: true,
-        slug: true,
-        city: true,
-        postalCode: true,
-        address: true,
-        phone: true,
-        logoUrl: true,
-        websiteUrl: true,
-        subscriptionPlan: true,
-        businessHours: true,
-        timezone: true,
-        enableOnlineBooking: true,
-        enableVipProgram: true,
-        enablePayments: true,
-        _count: {
-          select: {
-            professionals: { where: { isActive: true } },
-            treatments: { where: { isActive: true } }
-          }
-        }
-      }
-    });
+// ============================================================================
+// RUTAS DE AUTENTICACIÓN PÚBLICAS
+// ============================================================================
 
-    if (!clinic) {
-      return res.status(404).json({
-        success: false,
-        error: { 
-          message: 'Clínica no encontrada', 
-          code: 'CLINIC_NOT_FOUND' 
-        }
-      });
-    }
-
-    const transformedClinic = {
-      id: clinic.id,
-      name: clinic.name,
-      slug: clinic.slug,
-      city: clinic.city,
-      postalCode: clinic.postalCode,
-      address: clinic.address,
-      phone: clinic.phone,
-      logoUrl: clinic.logoUrl,
-      websiteUrl: clinic.websiteUrl,
-      subscriptionPlan: clinic.subscriptionPlan,
-      features: {
-        onlineBooking: clinic.enableOnlineBooking,
-        vipProgram: clinic.enableVipProgram,
-        payments: clinic.enablePayments
-      },
-      businessHours: clinic.businessHours ? 
-        (typeof clinic.businessHours === 'string' ? 
-          JSON.parse(clinic.businessHours) : 
-          clinic.businessHours) : null,
-      timezone: clinic.timezone,
-      stats: {
-        professionals: clinic._count.professionals,
-        treatments: clinic._count.treatments
-      }
-    };
-
-    res.status(200).json({
-      success: true,
-      data: transformedClinic,
-      message: 'Clínica encontrada'
-    });
-    
-  } catch (error) {
-    console.error('❌ Error fetching clinic:', error);
-    res.status(500).json({
-      success: false,
-      error: { 
-        message: 'Error obteniendo información de la clínica', 
-        code: 'CLINIC_FETCH_ERROR',
-        ...(process.env.NODE_ENV !== 'production' && { details: error.message })
-      }
-    });
-  }
-});
-
-// ========================================================================
-// RUTAS DE AUTENTICACIÓN
-// ========================================================================
-
-// ✅ Registro de usuarios
+// Registro de usuarios (clientes)
 router.post('/register', AuthController.register);
 
-// ✅ Login de pacientes
+// Login principal para pacientes (alias de patientLogin para compatibilidad)
+router.post('/login', AuthController.patientLogin);
+
+// Login específico para pacientes
 router.post('/patient/login', AuthController.patientLogin);
 
-// ✅ Login de profesionales
+// Login para profesionales
 router.post('/professional/login', AuthController.professionalLogin);
 
-// ✅ Login de administradores
+// Login para administradores
 router.post('/admin/login', AuthController.adminLogin);
 
-// ✅ Demo login (para testing)
-router.post('/demo-login', AuthController.demoLogin);
+// Refresh token
+router.post('/refresh-token', AuthController.refreshToken);
 
-// ✅ Refresh token
-router.post('/refresh', AuthController.refreshToken);
+// Demo login (solo en desarrollo)
+if (process.env.NODE_ENV !== 'production') {
+  router.post('/demo-login', AuthController.demoLogin);
+}
 
-// ========================================================================
+// ============================================================================
 // RUTAS PROTEGIDAS
-// ========================================================================
+// ============================================================================
 
-// ✅ Logout
+// Logout
 router.post('/logout', verifyToken, AuthController.logout);
 
-// ✅ Validar sesión actual
+// Validar sesión actual
 router.get('/validate-session', verifyToken, AuthController.validateSession);
 
-// ✅ Información del usuario actual
+// Información del usuario actual
 router.get('/me', verifyToken, async (req, res) => {
   try {
-    const { userId, professionalId, clinicId, userType } = req.user;
-    
-    let userData = null;
-    
-    if (userType === 'patient' && userId) {
-      userData = await prisma.user.findUnique({
-        where: { id: userId },
-        select: {
-          id: true,
-          email: true,
-          firstName: true,
-          lastName: true,
-          phone: true,
-          beautyPoints: true,
-          loyaltyTier: true,
-          vipStatus: true,
-          hasAllergies: true,
-          hasMedicalConditions: true,
-          isActive: true,
-          primaryClinic: {
-            select: {
-              id: true,
-              name: true,
-              slug: true,
-              city: true
-            }
-          }
-        }
-      });
-    } else if (userType === 'professional' && professionalId) {
-      userData = await prisma.professional.findUnique({
-        where: { id: professionalId },
-        select: {
-          id: true,
-          email: true,
-          firstName: true,
-          lastName: true,
-          phone: true,
-          role: true,
-          specialties: true,
-          isActive: true,
-          clinic: {
-            select: {
-              id: true,
-              name: true,
-              slug: true,
-              city: true
-            }
-          }
-        }
-      });
-    }
-    
-    if (!userData) {
-      return res.status(404).json({
-        success: false,
-        error: { message: 'Usuario no encontrado', code: 'USER_NOT_FOUND' }
-      });
-    }
+    const user = req.user;
     
     res.status(200).json({
       success: true,
       data: {
-        user: userData,
-        userType
+        user: {
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          name: user.name,
+          phone: user.phone,
+          role: user.role,
+          userType: user.userType,
+          ...(user.userType === 'patient' && {
+            beautyPoints: user.beautyPoints,
+            vipStatus: user.vipStatus,
+            loyaltyTier: user.loyaltyTier,
+            hasAllergies: user.hasAllergies,
+            hasMedicalConditions: user.hasMedicalConditions
+          }),
+          ...(user.userType === 'professional' && {
+            specialties: user.specialties,
+            experience: user.experience,
+            rating: user.rating,
+            licenseNumber: user.licenseNumber
+          })
+        },
+        clinic: CLINIC_CONFIG,
+        userType: user.userType
       },
-      message: 'Información del usuario obtenida'
+      message: 'User information retrieved'
     });
     
   } catch (error) {
-    console.error('❌ Error getting user info:', error);
+    console.error('Error getting user info:', error);
     res.status(500).json({
       success: false,
-      error: { message: 'Error obteniendo información del usuario', code: 'USER_INFO_ERROR' }
+      error: { 
+        message: 'Error retrieving user information', 
+        code: 'USER_INFO_ERROR' 
+      }
     });
   }
 });
 
-// ========================================================================
+// ============================================================================
+// RUTAS DE UTILIDAD
+// ============================================================================
+
+// Verificar disponibilidad de email
+router.post('/check-email', async (req, res) => {
+  try {
+    const { email } = req.body;
+    
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        error: { message: 'Email is required', code: 'MISSING_EMAIL' }
+      });
+    }
+
+    const { PrismaClient } = require('@prisma/client');
+    const prisma = new PrismaClient();
+
+    const existingUser = await prisma.user.findFirst({
+      where: { email: email.toLowerCase().trim() },
+      select: { id: true }
+    });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        available: !existingUser,
+        email: email.toLowerCase().trim()
+      },
+      message: existingUser ? 'Email is already registered' : 'Email is available'
+    });
+
+  } catch (error) {
+    console.error('Error checking email:', error);
+    res.status(500).json({
+      success: false,
+      error: { 
+        message: 'Error checking email availability', 
+        code: 'EMAIL_CHECK_ERROR' 
+      }
+    });
+  }
+});
+
+// Endpoint para obtener configuración pública
+router.get('/config', (req, res) => {
+  res.status(200).json({
+    success: true,
+    data: {
+      clinic: {
+        name: CLINIC_CONFIG.name,
+        city: CLINIC_CONFIG.city,
+        phone: CLINIC_CONFIG.phone,
+        email: CLINIC_CONFIG.email,
+        address: CLINIC_CONFIG.address,
+        logoUrl: CLINIC_CONFIG.logoUrl,
+        websiteUrl: CLINIC_CONFIG.websiteUrl,
+        businessHours: CLINIC_CONFIG.businessHours,
+        features: CLINIC_CONFIG.features,
+        socialMedia: CLINIC_CONFIG.socialMedia
+      },
+      features: {
+        registration: true,
+        professionalLogin: true,
+        adminLogin: true,
+        vipProgram: CLINIC_CONFIG.features.vipProgram,
+        beautyPoints: CLINIC_CONFIG.features.beautyPoints,
+        onlineBooking: CLINIC_CONFIG.features.onlineBooking
+      },
+      version: '4.0.0-SINGLE-CLINIC',
+      environment: process.env.NODE_ENV || 'development'
+    },
+    message: 'Public configuration retrieved'
+  });
+});
+
+// ============================================================================
 // ENDPOINTS DE DESARROLLO (SOLO EN NO-PRODUCCIÓN)
-// ========================================================================
+// ============================================================================
 
 if (process.env.NODE_ENV !== 'production') {
+  
   // Test endpoint para debugging
-  router.post('/test-register', async (req, res) => {
+  router.post('/test-auth', async (req, res) => {
     try {
-      console.log('🧪 TEST REGISTER ENDPOINT');
-      console.log('📥 Body:', JSON.stringify(req.body, null, 2));
+      console.log('Test auth endpoint called');
+      console.log('Body:', JSON.stringify(req.body, null, 2));
       
-      // Test básicos
       const bcrypt = require('bcrypt');
       const jwt = require('jsonwebtoken');
+      const { PrismaClient } = require('@prisma/client');
       
-      // Test Prisma
-      await prisma.$connect();
-      const clinicCount = await prisma.clinic.count();
-      
+      // Test básicos
+      const testResults = {
+        environment: process.env.NODE_ENV,
+        timestamp: new Date().toISOString(),
+        body: req.body,
+        tests: {}
+      };
+
+      // Test Prisma connection
+      try {
+        const prisma = new PrismaClient();
+        await prisma.$connect();
+        const userCount = await prisma.user.count();
+        testResults.tests.prisma = { status: 'OK', userCount };
+        await prisma.$disconnect();
+      } catch (error) {
+        testResults.tests.prisma = { status: 'ERROR', error: error.message };
+      }
+
       // Test bcrypt
-      const testHash = await bcrypt.hash('test123', 12);
-      
+      try {
+        const testHash = await bcrypt.hash('test123', 10);
+        const testVerify = await bcrypt.compare('test123', testHash);
+        testResults.tests.bcrypt = { 
+          status: 'OK', 
+          hashLength: testHash.length, 
+          verifyResult: testVerify 
+        };
+      } catch (error) {
+        testResults.tests.bcrypt = { status: 'ERROR', error: error.message };
+      }
+
       // Test JWT
-      const testToken = jwt.sign({ test: true }, process.env.JWT_SECRET || 'test-secret');
-      
+      try {
+        const testSecret = process.env.JWT_SECRET || 'test-secret';
+        const testToken = jwt.sign({ test: true }, testSecret, { expiresIn: '1h' });
+        const decoded = jwt.verify(testToken, testSecret);
+        testResults.tests.jwt = { 
+          status: 'OK', 
+          tokenLength: testToken.length,
+          decoded: !!decoded
+        };
+      } catch (error) {
+        testResults.tests.jwt = { status: 'ERROR', error: error.message };
+      }
+
       res.status(200).json({
         success: true,
-        message: 'All tests passed',
-        data: {
-          environment: process.env.NODE_ENV,
-          importsOK: true,
-          prismaOK: true,
-          bcryptOK: true,
-          jwtOK: true,
-          clinicCount,
-          testHashLength: testHash.length,
-          testTokenLength: testToken.length,
-          body: req.body
-        }
+        message: 'Auth test completed',
+        data: testResults
       });
       
     } catch (error) {
-      console.error('❌ Test failed:', error);
+      console.error('Test failed:', error);
       res.status(500).json({
         success: false,
         error: {
@@ -394,83 +336,144 @@ if (process.env.NODE_ENV !== 'production') {
       });
     }
   });
+
+  // Endpoint para generar usuario de prueba
+  router.post('/create-test-user', async (req, res) => {
+    try {
+      const { PrismaClient } = require('@prisma/client');
+      const bcrypt = require('bcrypt');
+      const prisma = new PrismaClient();
+
+      const testEmail = `test-${Date.now()}@test.com`;
+      const testPassword = 'Test123456';
+      const passwordHash = await bcrypt.hash(testPassword, 10);
+
+      const testUser = await prisma.user.create({
+        data: {
+          firstName: 'Test',
+          lastName: 'User',
+          email: testEmail,
+          passwordHash,
+          beautyPoints: 100,
+          loyaltyTier: 'BRONZE',
+          vipStatus: false,
+          role: 'CLIENT',
+          isActive: true,
+          privacyAccepted: true,
+          termsAccepted: true,
+          dataProcessingConsent: true,
+          gdprAcceptedAt: new Date()
+        }
+      });
+
+      res.status(201).json({
+        success: true,
+        data: {
+          user: {
+            id: testUser.id,
+            email: testUser.email,
+            password: testPassword // Only in test mode!
+          }
+        },
+        message: 'Test user created'
+      });
+
+    } catch (error) {
+      console.error('Error creating test user:', error);
+      res.status(500).json({
+        success: false,
+        error: { message: 'Failed to create test user' }
+      });
+    }
+  });
 }
 
-// ========================================================================
+// ============================================================================
 // MANEJO DE ERRORES GLOBAL
-// ========================================================================
+// ============================================================================
 router.use((error, req, res, next) => {
-  console.error('❌ Auth Route Error:', {
+  console.error('Auth Route Error:', {
     url: req.url,
     method: req.method,
     error: error.message,
-    code: error.code
+    code: error.code,
+    stack: process.env.NODE_ENV !== 'production' ? error.stack : undefined
   });
   
-  // Error de duplicado de Prisma
+  // Errores específicos de Prisma
   if (error.code === 'P2002') {
     return res.status(409).json({
       success: false,
       error: { 
-        message: 'Ya existe un registro con estos datos', 
+        message: 'Duplicate entry', 
         code: 'DUPLICATE_ENTRY',
         field: error.meta?.target?.[0] || 'unknown'
       }
     });
   }
   
-  // Error de registro no encontrado
   if (error.code === 'P2025') {
     return res.status(404).json({
       success: false,
       error: { 
-        message: 'Registro no encontrado', 
+        message: 'Record not found', 
         code: 'NOT_FOUND' 
       }
     });
   }
   
-  // Error de validación
+  // Errores de conexión a BD
+  if (error.code === 'P1001' || error.code === 'P1002') {
+    return res.status(503).json({
+      success: false,
+      error: {
+        message: 'Database connection error',
+        code: 'DATABASE_CONNECTION_ERROR'
+      }
+    });
+  }
+
+  // Errores JWT
+  if (error.name === 'JsonWebTokenError') {
+    return res.status(401).json({
+      success: false,
+      error: {
+        message: 'Invalid token',
+        code: 'INVALID_TOKEN'
+      }
+    });
+  }
+
+  if (error.name === 'TokenExpiredError') {
+    return res.status(401).json({
+      success: false,
+      error: {
+        message: 'Token expired',
+        code: 'TOKEN_EXPIRED'
+      }
+    });
+  }
+
+  // Errores de validación
   if (error.name === 'ValidationError') {
     return res.status(400).json({
       success: false,
       error: { 
-        message: 'Datos inválidos', 
+        message: 'Validation failed', 
         code: 'VALIDATION_ERROR',
         details: error.message
       }
     });
   }
 
-  // Error de conexión de base de datos
-  if (error.code === 'P1001' || error.code === 'P1002') {
-    return res.status(503).json({
+  // Rate limiting
+  if (error.status === 429) {
+    return res.status(429).json({
       success: false,
       error: {
-        message: 'Error de conexión a la base de datos',
-        code: 'DATABASE_CONNECTION_ERROR'
-      }
-    });
-  }
-
-  // Error de token JWT
-  if (error.name === 'JsonWebTokenError') {
-    return res.status(401).json({
-      success: false,
-      error: {
-        message: 'Token inválido',
-        code: 'INVALID_TOKEN'
-      }
-    });
-  }
-
-  // Error de token expirado
-  if (error.name === 'TokenExpiredError') {
-    return res.status(401).json({
-      success: false,
-      error: {
-        message: 'Token expirado',
-        code: 'TOKEN_EXPIRED'
+        message: 'Too many requests',
+        code: 'RATE_LIMIT_EXCEEDED',
+        retryAfter: error.retryAfter
       }
     });
   }
@@ -479,8 +482,9 @@ router.use((error, req, res, next) => {
   res.status(error.status || 500).json({
     success: false,
     error: {
-      message: error.message || 'Error interno del servidor',
+      message: error.message || 'Internal server error',
       code: error.code || 'INTERNAL_ERROR',
+      timestamp: new Date().toISOString(),
       ...(process.env.NODE_ENV !== 'production' && { 
         stack: error.stack 
       })
