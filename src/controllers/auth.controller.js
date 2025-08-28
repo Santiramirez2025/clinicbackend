@@ -1,24 +1,30 @@
 // ============================================================================
-// auth.controller.js - SINGLE CLINIC PRODUCTION READY v4.0 - FIXED
+// auth.controller.js - SINGLE CLINIC PRODUCTION READY v4.1 - FIXED
+// src/controllers/auth.controller.js
 // ============================================================================
 
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { PrismaClient } = require('@prisma/client');
 
-// Singleton de Prisma
+// Singleton de Prisma optimizado
 let prisma;
-if (global.prisma) {
-  prisma = global.prisma;
-} else {
-  prisma = new PrismaClient({
-    log: process.env.NODE_ENV === 'production' ? ['error'] : ['error', 'warn'],
-    datasources: {
-      db: { url: process.env.DATABASE_URL }
-    },
-    errorFormat: 'pretty'
-  });
-  global.prisma = prisma;
+try {
+  if (global.prisma) {
+    prisma = global.prisma;
+  } else {
+    prisma = new PrismaClient({
+      log: process.env.NODE_ENV === 'production' ? ['error'] : ['error', 'warn'],
+      datasources: {
+        db: { url: process.env.DATABASE_URL }
+      },
+      errorFormat: 'pretty'
+    });
+    global.prisma = prisma;
+  }
+} catch (error) {
+  console.error('Prisma initialization error:', error);
+  process.exit(1);
 }
 
 // Configuración JWT con validación
@@ -32,188 +38,164 @@ if (!JWT_SECRET) {
 
 // Configuración de la clínica única
 const CLINIC_CONFIG = {
+  id: 'clinic-1',
   name: process.env.CLINIC_NAME || 'Belleza Estética',
   slug: 'belleza-estetica',
   email: process.env.CLINIC_EMAIL || 'info@bellezaestetica.com',
   phone: process.env.CLINIC_PHONE || '+34 900 123 456',
   city: process.env.CLINIC_CITY || 'Madrid',
   address: process.env.CLINIC_ADDRESS || 'Calle Principal 123',
-  timezone: process.env.CLINIC_TIMEZONE || 'Europe/Madrid'
+  timezone: process.env.CLINIC_TIMEZONE || 'Europe/Madrid',
+  features: {
+    onlineBooking: true,
+    vipProgram: true,
+    payments: true,
+    beautyPoints: true,
+    notifications: true,
+    reviews: true
+  },
+  businessHours: {
+    monday: { open: '09:00', close: '20:00', enabled: true },
+    tuesday: { open: '09:00', close: '20:00', enabled: true },
+    wednesday: { open: '09:00', close: '20:00', enabled: true },
+    thursday: { open: '09:00', close: '20:00', enabled: true },
+    friday: { open: '09:00', close: '20:00', enabled: true },
+    saturday: { open: '10:00', close: '18:00', enabled: true },
+    sunday: { closed: true }
+  }
 };
 
 // ============================================================================
 // UTILITARIOS
 // ============================================================================
+
 const generateTokens = (payload) => {
-  const accessToken = jwt.sign(
-    {
-      ...payload,
-      iat: Math.floor(Date.now() / 1000),
-      jti: Math.random().toString(36).substring(2)
-    }, 
-    JWT_SECRET, 
-    { 
-      expiresIn: process.env.NODE_ENV === 'production' ? '4h' : '24h',
-      issuer: 'belleza-estetica',
-      audience: 'mobile-app'
-    }
-  );
-  
-  const refreshToken = jwt.sign(
-    { 
-      userId: payload.userId || payload.professionalId,
-      type: 'refresh',
-      iat: Math.floor(Date.now() / 1000),
-      jti: Math.random().toString(36).substring(2)
-    },
-    JWT_REFRESH_SECRET,
-    { 
-      expiresIn: '7d',
-      issuer: 'belleza-estetica' 
-    }
-  );
-  
-  return { accessToken, refreshToken };
+  try {
+    const accessToken = jwt.sign(
+      {
+        ...payload,
+        iat: Math.floor(Date.now() / 1000),
+        jti: Math.random().toString(36).substring(2)
+      }, 
+      JWT_SECRET, 
+      { 
+        expiresIn: process.env.NODE_ENV === 'production' ? '4h' : '24h',
+        issuer: 'belleza-estetica',
+        audience: 'mobile-app'
+      }
+    );
+    
+    const refreshToken = jwt.sign(
+      { 
+        userId: payload.userId,
+        type: 'refresh',
+        iat: Math.floor(Date.now() / 1000),
+        jti: Math.random().toString(36).substring(2)
+      },
+      JWT_REFRESH_SECRET,
+      { 
+        expiresIn: '7d',
+        issuer: 'belleza-estetica' 
+      }
+    );
+    
+    return { accessToken, refreshToken };
+  } catch (error) {
+    console.error('Token generation error:', error);
+    throw new Error('Failed to generate tokens');
+  }
 };
 
 const hashPassword = async (password) => {
-  const saltRounds = process.env.NODE_ENV === 'production' ? 12 : 10;
-  return await bcrypt.hash(password, saltRounds);
+  try {
+    const saltRounds = process.env.NODE_ENV === 'production' ? 12 : 10;
+    return await bcrypt.hash(password, saltRounds);
+  } catch (error) {
+    console.error('Password hashing error:', error);
+    throw new Error('Failed to hash password');
+  }
 };
 
-// ============================================================================
-// ENSURE CLINIC EXISTS - SINGLE CLINIC HELPER
-// ============================================================================
-const ensureClinicExists = async () => {
-  try {
-    // Buscar clínica existente
-    let clinic = await prisma.clinic.findFirst({
-      where: { 
-        OR: [
-          { slug: CLINIC_CONFIG.slug },
-          { email: CLINIC_CONFIG.email }
-        ]
-      }
-    });
+const validateEmail = (email) => {
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return emailRegex.test(email);
+};
 
-    // Si no existe, crearla
-    if (!clinic) {
-      console.log('Creating default clinic for single clinic setup...');
-      
-      clinic = await prisma.clinic.create({
-        data: {
-          name: CLINIC_CONFIG.name,
-          slug: CLINIC_CONFIG.slug,
-          email: CLINIC_CONFIG.email,
-          passwordHash: await hashPassword('admin123'), // Default admin password
-          phone: CLINIC_CONFIG.phone,
-          address: CLINIC_CONFIG.address,
-          city: CLINIC_CONFIG.city,
-          postalCode: '28001',
-          country: 'ES',
-          timezone: CLINIC_CONFIG.timezone,
-          businessHours: JSON.stringify({
-            monday: { open: '09:00', close: '20:00', enabled: true },
-            tuesday: { open: '09:00', close: '20:00', enabled: true },
-            wednesday: { open: '09:00', close: '20:00', enabled: true },
-            thursday: { open: '09:00', close: '20:00', enabled: true },
-            friday: { open: '09:00', close: '20:00', enabled: true },
-            saturday: { open: '10:00', close: '18:00', enabled: true },
-            sunday: { closed: true }
-          }),
-          isActive: true,
-          isVerified: true,
-          emailVerified: true,
-          onboardingCompleted: true,
-          subscriptionPlan: 'PREMIUM',
-          enableOnlineBooking: true,
-          enableVipProgram: true,
-          enablePayments: true
-        }
-      });
-      
-      console.log(`Clinic created: ${clinic.name} (${clinic.id})`);
-    }
-
-    return clinic;
-  } catch (error) {
-    console.error('Error ensuring clinic exists:', error);
-    throw error;
+const validatePassword = (password) => {
+  if (!password || password.length < 6) {
+    return { valid: false, message: 'Password must be at least 6 characters' };
   }
+  return { valid: true };
 };
 
 // ============================================================================
 // AUTH CONTROLLER CLASS
 // ============================================================================
+
 class AuthController {
   
   // ========================================================================
-  // REGISTER - FIXED FOR SINGLE CLINIC WITH primaryClinic
+  // REGISTER - SIMPLIFICADO Y CORREGIDO
   // ========================================================================
   static async register(req, res) {
     try {
       const { firstName, lastName, email, password, phone, birthDate, skinType } = req.body;
       
-      console.log(`Registration attempt: ${email}`);
+      console.log('Registration attempt:', email);
       
-      // Validaciones
-      const validationErrors = [];
-      
-      if (!firstName?.trim()) validationErrors.push('firstName is required');
-      if (!lastName?.trim()) validationErrors.push('lastName is required');
-      if (!email?.trim()) validationErrors.push('email is required');
-      if (!password) validationErrors.push('password is required');
-      
-      // Validación de email
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (email && !emailRegex.test(email)) {
-        validationErrors.push('email format is invalid');
-      }
-      
-      // Validación de contraseña (debe coincidir con frontend)
-      if (password) {
-        if (password.length < 8) validationErrors.push('password must be at least 8 characters');
-        if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(password)) {
-          validationErrors.push('password must contain uppercase, lowercase and number');
-        }
-      }
-      
-      if (validationErrors.length > 0) {
+      // Validaciones básicas
+      if (!firstName?.trim()) {
         return res.status(400).json({
           success: false,
-          error: { 
-            message: 'Validation failed', 
-            code: 'VALIDATION_ERROR',
-            details: validationErrors
-          }
+          error: { message: 'firstName is required', code: 'VALIDATION_ERROR' }
         });
       }
       
-      // PASO 1: Asegurar que existe la clínica
-      const clinic = await ensureClinicExists();
+      if (!lastName?.trim()) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'lastName is required', code: 'VALIDATION_ERROR' }
+        });
+      }
       
-      // PASO 2: Verificar usuario existente
+      if (!email?.trim()) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'email is required', code: 'VALIDATION_ERROR' }
+        });
+      }
+      
+      if (!validateEmail(email)) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'Invalid email format', code: 'VALIDATION_ERROR' }
+        });
+      }
+      
+      const passwordValidation = validatePassword(password);
+      if (!passwordValidation.valid) {
+        return res.status(400).json({
+          success: false,
+          error: { message: passwordValidation.message, code: 'VALIDATION_ERROR' }
+        });
+      }
+      
+      // Verificar usuario existente
       const existingUser = await prisma.user.findFirst({
-        where: { 
-          email: email.toLowerCase().trim()
-        },
-        select: { id: true, email: true }
+        where: { email: email.toLowerCase().trim() }
       });
       
       if (existingUser) {
         return res.status(409).json({
           success: false,
-          error: { 
-            message: 'Email already registered', 
-            code: 'EMAIL_EXISTS' 
-          }
+          error: { message: 'Email already registered', code: 'EMAIL_EXISTS' }
         });
       }
 
-      // PASO 3: Hash password
+      // Hash password
       const passwordHash = await hashPassword(password);
 
-      // PASO 4: Crear usuario con clínica asociada
+      // Crear usuario con datos mínimos requeridos
       const user = await prisma.user.create({
         data: {
           firstName: firstName.trim(),
@@ -223,71 +205,21 @@ class AuthController {
           phone: phone?.trim() || null,
           birthDate: birthDate ? new Date(birthDate) : null,
           skinType: skinType || 'NORMAL',
-          
-          // FIXED: Conectar con clínica única
-          primaryClinicId: clinic.id,
-          
-          // Configuración por defecto
           beautyPoints: 100,
           loyaltyTier: 'BRONZE',
           vipStatus: false,
           role: 'CLIENT',
-          
-          // Estados médicos por defecto
           hasAllergies: false,
-          allergyDetails: null,
           hasMedicalConditions: false,
-          medicalDetails: null,
-          takingMedications: false,
-          medicationDetails: null,
-          
-          // Configuración inicial
           isActive: true,
-          isVerified: false,
-          onboardingCompleted: false,
-          
-          // Consentimientos GDPR
           privacyAccepted: true,
           termsAccepted: true,
           dataProcessingConsent: true,
-          gdprAcceptedAt: new Date(),
-          
-          // Preferencias de notificación
-          emailNotifications: true,
-          smsNotifications: false,
-          marketingNotifications: true
-        },
-        select: {
-          id: true,
-          email: true,
-          firstName: true,
-          lastName: true,
-          phone: true,
-          beautyPoints: true,
-          vipStatus: true,
-          loyaltyTier: true,
-          role: true,
-          skinType: true,
-          birthDate: true,
-          hasAllergies: true,
-          hasMedicalConditions: true,
-          isActive: true,
-          createdAt: true,
-          primaryClinic: {
-            select: {
-              id: true,
-              name: true,
-              slug: true,
-              city: true,
-              phone: true,
-              email: true,
-              address: true
-            }
-          }
+          gdprAcceptedAt: new Date()
         }
       });
 
-      // PASO 5: Generar tokens
+      // Generar tokens
       const tokenPayload = {
         userId: user.id,
         email: user.email,
@@ -297,49 +229,37 @@ class AuthController {
 
       const { accessToken, refreshToken } = generateTokens(tokenPayload);
 
-      console.log(`Registration successful: ${user.email}`);
+      console.log('Registration successful:', user.email);
 
-      // PASO 6: Respuesta con auto-login
+      // Respuesta con auto-login
       res.status(201).json({
         success: true,
+        token: accessToken,
+        user: {
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          name: `${user.firstName} ${user.lastName}`,
+          phone: user.phone,
+          role: user.role,
+          userType: 'patient',
+          beautyPoints: user.beautyPoints,
+          vipStatus: user.vipStatus,
+          loyaltyTier: user.loyaltyTier,
+          skinType: user.skinType,
+          hasAllergies: user.hasAllergies,
+          hasMedicalConditions: user.hasMedicalConditions,
+          memberSince: user.createdAt
+        },
         data: {
-          user: {
-            id: user.id,
-            email: user.email,
-            firstName: user.firstName,
-            lastName: user.lastName,
-            name: `${user.firstName} ${user.lastName}`,
-            phone: user.phone,
-            role: user.role,
-            beautyPoints: user.beautyPoints,
-            vipStatus: user.vipStatus,
-            loyaltyTier: user.loyaltyTier,
-            skinType: user.skinType,
-            hasAllergies: user.hasAllergies,
-            hasMedicalConditions: user.hasMedicalConditions,
-            isActive: user.isActive,
-            memberSince: user.createdAt
-          },
           tokens: { 
             accessToken, 
             refreshToken, 
             tokenType: 'Bearer', 
             expiresIn: process.env.NODE_ENV === 'production' ? '4h' : '24h'
           },
-          clinic: {
-            id: user.primaryClinic.id,
-            name: user.primaryClinic.name,
-            city: user.primaryClinic.city,
-            phone: user.primaryClinic.phone,
-            email: user.primaryClinic.email,
-            address: user.primaryClinic.address,
-            features: {
-              onlineBooking: true,
-              vipProgram: true,
-              payments: true,
-              beautyPoints: true
-            }
-          },
+          clinic: CLINIC_CONFIG,
           userType: 'patient'
         },
         message: 'Registration successful'
@@ -364,23 +284,20 @@ class AuthController {
         success: false,
         error: { 
           message: 'Registration failed', 
-          code: 'REGISTRATION_ERROR',
-          ...(process.env.NODE_ENV !== 'production' && { 
-            details: error.message 
-          })
+          code: 'REGISTRATION_ERROR'
         }
       });
     }
   }
 
   // ========================================================================
-  // LOGIN PACIENTES - OPTIMIZADO
+  // LOGIN PACIENTES - COMPLETAMENTE CORREGIDO
   // ========================================================================
   static async patientLogin(req, res) {
     try {
       const { email, password } = req.body;
       
-      console.log(`Login attempt: ${email}`);
+      console.log('Login attempt:', email);
       
       if (!email || !password) {
         return res.status(400).json({
@@ -392,39 +309,13 @@ class AuthController {
         });
       }
 
-      // Buscar usuario activo con clínica
+      // Query simplificada sin campos duplicados
       const user = await prisma.user.findFirst({
         where: {
           email: email.toLowerCase().trim(),
-          isActive: true
-        },
-        select: {
-          id: true,
-          email: true,
-          firstName: true,
-          lastName: true,
-          phone: true,
-          passwordHash: true,
-          beautyPoints: true,
-          loyaltyTier: true,
-          vipStatus: true,
-          role: true,
-          skinType: true,
-          hasAllergies: true,
-          hasMedicalConditions: true,
-          lastLoginAt: true,
-          loginCount: true,
-          createdAt: true,
-          primaryClinic: {
-            select: {
-              id: true,
-              name: true,
-              slug: true,
-              city: true,
-              phone: true,
-              email: true,
-              address: true
-            }
+          isActive: true,
+          role: {
+            in: ['CLIENT', 'VIP_CLIENT']
           }
         }
       });
@@ -451,14 +342,18 @@ class AuthController {
         });
       }
 
-      // Actualizar estadísticas de login
-      await prisma.user.update({
-        where: { id: user.id },
-        data: {
-          lastLoginAt: new Date(),
-          loginCount: { increment: 1 }
-        }
-      }).catch(err => console.warn('Failed to update login stats:', err));
+      // Actualizar estadísticas de login (sin fallar si hay error)
+      try {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: {
+            lastLoginAt: new Date(),
+            loginCount: { increment: 1 }
+          }
+        });
+      } catch (updateError) {
+        console.warn('Failed to update login stats:', updateError.message);
+      }
 
       // Generar tokens
       const tokenPayload = {
@@ -470,49 +365,39 @@ class AuthController {
 
       const { accessToken, refreshToken } = generateTokens(tokenPayload);
 
-      console.log(`Login successful: ${user.email}`);
+      console.log('Login successful:', user.email);
 
+      // Respuesta compatible con useLoginLogic
       res.status(200).json({
         success: true,
+        token: accessToken,
+        user: {
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          name: `${user.firstName} ${user.lastName}`,
+          phone: user.phone || null,
+          role: user.role,
+          userType: 'patient',
+          beautyPoints: user.beautyPoints || 0,
+          vipStatus: user.vipStatus || false,
+          loyaltyTier: user.loyaltyTier || 'BRONZE',
+          skinType: user.skinType || 'NORMAL',
+          hasAllergies: user.hasAllergies || false,
+          hasMedicalConditions: user.hasMedicalConditions || false,
+          lastLogin: user.lastLoginAt,
+          loginCount: user.loginCount || 0,
+          memberSince: user.createdAt
+        },
         data: {
-          user: {
-            id: user.id,
-            email: user.email,
-            firstName: user.firstName,
-            lastName: user.lastName,
-            name: `${user.firstName} ${user.lastName}`,
-            phone: user.phone,
-            role: user.role,
-            beautyPoints: user.beautyPoints,
-            vipStatus: user.vipStatus,
-            loyaltyTier: user.loyaltyTier,
-            skinType: user.skinType,
-            hasAllergies: user.hasAllergies,
-            hasMedicalConditions: user.hasMedicalConditions,
-            lastLogin: user.lastLoginAt,
-            loginCount: user.loginCount,
-            memberSince: user.createdAt
-          },
           tokens: { 
             accessToken, 
             refreshToken, 
             tokenType: 'Bearer', 
             expiresIn: process.env.NODE_ENV === 'production' ? '4h' : '24h'
           },
-          clinic: {
-            id: user.primaryClinic.id,
-            name: user.primaryClinic.name,
-            city: user.primaryClinic.city,
-            phone: user.primaryClinic.phone,
-            email: user.primaryClinic.email,
-            address: user.primaryClinic.address,
-            features: {
-              onlineBooking: true,
-              vipProgram: true,
-              payments: true,
-              beautyPoints: true
-            }
-          },
+          clinic: CLINIC_CONFIG,
           userType: 'patient'
         },
         message: 'Login successful'
@@ -520,36 +405,221 @@ class AuthController {
 
     } catch (error) {
       console.error('Login error:', error);
+      console.error('Login error details:', {
+        message: error.message,
+        code: error.code,
+        meta: error.meta
+      });
+      
       res.status(500).json({
         success: false,
         error: { 
           message: 'Login failed', 
-          code: 'LOGIN_ERROR',
-          ...(process.env.NODE_ENV !== 'production' && { 
-            details: error.message 
-          })
+          code: 'LOGIN_ERROR'
         }
       });
     }
   }
 
   // ========================================================================
-  // OTROS MÉTODOS (PROFESSIONAL, ADMIN, etc.)
+  // PROFESSIONAL LOGIN - IMPLEMENTACIÓN BÁSICA
   // ========================================================================
   static async professionalLogin(req, res) {
-    res.status(501).json({
-      success: false,
-      error: { message: 'Professional login not implemented yet', code: 'NOT_IMPLEMENTED' }
-    });
+    try {
+      const { email, password } = req.body;
+      
+      console.log('Professional login attempt:', email);
+      
+      if (!email || !password) {
+        return res.status(400).json({
+          success: false,
+          error: { 
+            message: 'Email and password are required', 
+            code: 'MISSING_CREDENTIALS' 
+          }
+        });
+      }
+
+      const user = await prisma.user.findFirst({
+        where: {
+          email: email.toLowerCase().trim(),
+          isActive: true,
+          role: 'PROFESSIONAL'
+        }
+      });
+
+      if (!user) {
+        return res.status(401).json({
+          success: false,
+          error: { 
+            message: 'Invalid credentials', 
+            code: 'INVALID_CREDENTIALS' 
+          }
+        });
+      }
+
+      const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
+      if (!isPasswordValid) {
+        return res.status(401).json({
+          success: false,
+          error: { 
+            message: 'Invalid credentials', 
+            code: 'INVALID_CREDENTIALS' 
+          }
+        });
+      }
+
+      const tokenPayload = {
+        userId: user.id,
+        email: user.email,
+        role: user.role,
+        userType: 'professional'
+      };
+
+      const { accessToken, refreshToken } = generateTokens(tokenPayload);
+
+      console.log('Professional login successful:', user.email);
+
+      res.status(200).json({
+        success: true,
+        token: accessToken,
+        user: {
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          name: `${user.firstName} ${user.lastName}`,
+          phone: user.phone,
+          role: user.role,
+          userType: 'professional'
+        },
+        data: {
+          tokens: { 
+            accessToken, 
+            refreshToken, 
+            tokenType: 'Bearer', 
+            expiresIn: process.env.NODE_ENV === 'production' ? '4h' : '24h'
+          },
+          clinic: CLINIC_CONFIG,
+          userType: 'professional'
+        },
+        message: 'Professional login successful'
+      });
+
+    } catch (error) {
+      console.error('Professional login error:', error);
+      res.status(500).json({
+        success: false,
+        error: { 
+          message: 'Professional login failed', 
+          code: 'PROFESSIONAL_LOGIN_ERROR'
+        }
+      });
+    }
   }
 
+  // ========================================================================
+  // ADMIN LOGIN - IMPLEMENTACIÓN BÁSICA
+  // ========================================================================
   static async adminLogin(req, res) {
-    res.status(501).json({
-      success: false,
-      error: { message: 'Admin login not implemented yet', code: 'NOT_IMPLEMENTED' }
-    });
+    try {
+      const { email, password } = req.body;
+      
+      console.log('Admin login attempt:', email);
+      
+      if (!email || !password) {
+        return res.status(400).json({
+          success: false,
+          error: { 
+            message: 'Email and password are required', 
+            code: 'MISSING_CREDENTIALS' 
+          }
+        });
+      }
+
+      const user = await prisma.user.findFirst({
+        where: {
+          email: email.toLowerCase().trim(),
+          isActive: true,
+          role: {
+            in: ['MANAGER', 'ADMIN']
+          }
+        }
+      });
+
+      if (!user) {
+        return res.status(401).json({
+          success: false,
+          error: { 
+            message: 'Invalid credentials', 
+            code: 'INVALID_CREDENTIALS' 
+          }
+        });
+      }
+
+      const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
+      if (!isPasswordValid) {
+        return res.status(401).json({
+          success: false,
+          error: { 
+            message: 'Invalid credentials', 
+            code: 'INVALID_CREDENTIALS' 
+          }
+        });
+      }
+
+      const tokenPayload = {
+        userId: user.id,
+        email: user.email,
+        role: user.role,
+        userType: 'admin'
+      };
+
+      const { accessToken, refreshToken } = generateTokens(tokenPayload);
+
+      console.log('Admin login successful:', user.email);
+
+      res.status(200).json({
+        success: true,
+        token: accessToken,
+        user: {
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          name: `${user.firstName} ${user.lastName}`,
+          phone: user.phone,
+          role: user.role,
+          userType: 'admin'
+        },
+        data: {
+          tokens: { 
+            accessToken, 
+            refreshToken, 
+            tokenType: 'Bearer', 
+            expiresIn: process.env.NODE_ENV === 'production' ? '4h' : '24h'
+          },
+          clinic: CLINIC_CONFIG,
+          userType: 'admin'
+        },
+        message: 'Admin login successful'
+      });
+
+    } catch (error) {
+      console.error('Admin login error:', error);
+      res.status(500).json({
+        success: false,
+        error: { 
+          message: 'Admin login failed', 
+          code: 'ADMIN_LOGIN_ERROR'
+        }
+      });
+    }
   }
 
+  // ========================================================================
+  // DEMO LOGIN - SOLO DESARROLLO
+  // ========================================================================
   static async demoLogin(req, res) {
     if (process.env.NODE_ENV === 'production') {
       return res.status(404).json({
@@ -559,37 +629,72 @@ class AuthController {
     }
 
     try {
-      const demoUser = {
-        id: 'demo-user-123',
-        email: 'demo@bellezaestetica.com',
-        firstName: 'Ana',
-        lastName: 'García',
-        name: 'Ana García',
-        phone: '+34 600 123 456',
-        role: 'CLIENT',
-        beautyPoints: 1250,
-        vipStatus: true,
-        loyaltyTier: 'GOLD',
-        skinType: 'NORMAL',
-        hasAllergies: false,
-        hasMedicalConditions: false,
-        isDemo: true
+      const { type = 'patient' } = req.body;
+
+      const demoUsers = {
+        patient: {
+          id: 'demo-patient-123',
+          email: 'demo@bellezaestetica.com',
+          firstName: 'Ana',
+          lastName: 'García',
+          name: 'Ana García',
+          phone: '+34 600 123 456',
+          role: 'CLIENT',
+          userType: 'patient',
+          beautyPoints: 1250,
+          vipStatus: true,
+          loyaltyTier: 'GOLD',
+          skinType: 'NORMAL',
+          hasAllergies: false,
+          hasMedicalConditions: false,
+          isDemo: true
+        },
+        professional: {
+          id: 'demo-professional-456',
+          email: 'professional@bellezaestetica.com',
+          firstName: 'Carmen',
+          lastName: 'López',
+          name: 'Carmen López',
+          phone: '+34 600 789 012',
+          role: 'PROFESSIONAL',
+          userType: 'professional',
+          specialties: ['Facial', 'Anti-edad'],
+          experience: 5,
+          isDemo: true
+        },
+        admin: {
+          id: 'demo-admin-789',
+          email: 'admin@bellezaestetica.com',
+          firstName: 'Admin',
+          lastName: 'Usuario',
+          name: 'Admin Usuario',
+          phone: '+34 600 345 678',
+          role: 'ADMIN',
+          userType: 'admin',
+          permissions: ['all'],
+          isDemo: true
+        }
       };
+
+      const demoUser = demoUsers[type] || demoUsers.patient;
 
       const tokenPayload = {
         userId: demoUser.id,
         email: demoUser.email,
         role: demoUser.role,
-        userType: 'patient',
+        userType: demoUser.userType,
         isDemo: true
       };
 
       const { accessToken, refreshToken } = generateTokens(tokenPayload);
 
+      console.log(`Demo login successful: ${demoUser.email} (${type})`);
+
       res.status(200).json({
         success: true,
+        token: accessToken,
+        user: demoUser,
         data: {
-          user: demoUser,
           tokens: { 
             accessToken, 
             refreshToken, 
@@ -597,9 +702,9 @@ class AuthController {
             expiresIn: '24h'
           },
           clinic: CLINIC_CONFIG,
-          userType: 'patient'
+          userType: demoUser.userType
         },
-        message: 'Demo login successful'
+        message: `Demo ${type} login successful`
       });
 
     } catch (error) {
@@ -611,25 +716,149 @@ class AuthController {
     }
   }
 
-  static async refreshToken(req, res) {
-    res.status(501).json({
-      success: false,
-      error: { message: 'Refresh token not implemented yet', code: 'NOT_IMPLEMENTED' }
-    });
+  // ========================================================================
+  // CREAR USUARIO DE PRUEBA - SOLO DESARROLLO
+  // ========================================================================
+  static async createTestUser(req, res) {
+    if (process.env.NODE_ENV === 'production') {
+      return res.status(404).json({
+        success: false,
+        error: { message: 'Test user creation not available in production', code: 'NOT_AVAILABLE' }
+      });
+    }
+
+    try {
+      const testEmail = `test${Date.now()}@test.com`;
+      const testPassword = 'Test123456';
+      const passwordHash = await hashPassword(testPassword);
+
+      const testUser = await prisma.user.create({
+        data: {
+          firstName: 'Test',
+          lastName: 'User',
+          email: testEmail,
+          passwordHash,
+          beautyPoints: 100,
+          loyaltyTier: 'BRONZE',
+          vipStatus: false,
+          role: 'CLIENT',
+          isActive: true,
+          privacyAccepted: true,
+          termsAccepted: true,
+          dataProcessingConsent: true,
+          gdprAcceptedAt: new Date()
+        }
+      });
+
+      res.status(201).json({
+        success: true,
+        data: {
+          user: {
+            id: testUser.id,
+            email: testUser.email,
+            password: testPassword // Solo en modo test!
+          }
+        },
+        message: 'Test user created successfully'
+      });
+
+    } catch (error) {
+      console.error('Error creating test user:', error);
+      res.status(500).json({
+        success: false,
+        error: { message: 'Failed to create test user', code: 'TEST_USER_ERROR' }
+      });
+    }
   }
 
+  // ========================================================================
+  // REFRESH TOKEN
+  // ========================================================================
+  static async refreshToken(req, res) {
+    try {
+      const { token } = req.body;
+
+      if (!token) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'Refresh token is required', code: 'MISSING_REFRESH_TOKEN' }
+        });
+      }
+
+      const decoded = jwt.verify(token, JWT_REFRESH_SECRET);
+      
+      if (decoded.type !== 'refresh') {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'Invalid refresh token', code: 'INVALID_REFRESH_TOKEN' }
+        });
+      }
+
+      const user = await prisma.user.findUnique({
+        where: { id: decoded.userId, isActive: true }
+      });
+
+      if (!user) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not found or inactive', code: 'USER_NOT_FOUND' }
+        });
+      }
+
+      const tokenPayload = {
+        userId: user.id,
+        email: user.email,
+        role: user.role,
+        userType: user.role === 'PROFESSIONAL' ? 'professional' : 
+                  user.role === 'ADMIN' || user.role === 'MANAGER' ? 'admin' : 'patient'
+      };
+
+      const { accessToken, refreshToken: newRefreshToken } = generateTokens(tokenPayload);
+
+      res.status(200).json({
+        success: true,
+        data: {
+          accessToken,
+          refreshToken: newRefreshToken,
+          tokenType: 'Bearer',
+          expiresIn: process.env.NODE_ENV === 'production' ? '4h' : '24h'
+        },
+        message: 'Token refreshed successfully'
+      });
+
+    } catch (error) {
+      console.error('Refresh token error:', error);
+      
+      if (error.name === 'JsonWebTokenError' || error.name === 'TokenExpiredError') {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'Invalid or expired refresh token', code: 'INVALID_REFRESH_TOKEN' }
+        });
+      }
+
+      res.status(500).json({
+        success: false,
+        error: { message: 'Token refresh failed', code: 'REFRESH_TOKEN_ERROR' }
+      });
+    }
+  }
+
+  // ========================================================================
+  // VALIDATE SESSION
+  // ========================================================================
   static async validateSession(req, res) {
     try {
+      const user = req.user; // Del middleware de auth
+
       res.status(200).json({
         success: true,
         data: {
           authenticated: true,
           user: {
-            id: req.user.id,
-            email: req.user.email,
-            name: req.user.name,
-            role: req.user.role,
-            userType: req.user.userType
+            id: user.id || user.userId,
+            email: user.email,
+            role: user.role,
+            userType: user.userType
           }
         },
         message: 'Session is valid'
@@ -644,8 +873,12 @@ class AuthController {
     }
   }
 
+  // ========================================================================
+  // LOGOUT
+  // ========================================================================
   static async logout(req, res) {
     try {
+      // En una implementación completa, aquí invalidarías el token
       res.status(200).json({
         success: true,
         message: 'Logout successful'
